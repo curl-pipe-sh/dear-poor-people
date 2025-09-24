@@ -1,0 +1,435 @@
+#!/usr/bin/env sh
+# curl-ossl — tiny curl-ish fetcher using openssl s_client (binary-safe)
+# Features: HTTPS only, HTTP/1.1, redirects, -o, -I, -s/-S, -f, -4/-6, -v, --max-redirs, dechunk
+# Conventions: booleans use "1" for true, unset/empty for false; no exit in funcs; usage() prints only.
+
+set -eu
+
+MAX_REDIRECTS_DEFAULT=5
+
+# boolean flags: set to "1" when enabled, otherwise unset/empty
+silent=
+show_error=
+head_only=
+fail_on_error=
+force_v4=
+force_v6=
+verbose=
+
+outfile=
+max_redirs=$MAX_REDIRECTS_DEFAULT
+url=
+
+usage() {
+  echo "Usage: $0 [OPTIONS] URL"
+  echo
+  echo "Options:"
+  echo "  -s                Silent (suppress TLS chatter)"
+  echo "  -S                Show errors (useful with -s)"
+  echo "  -o FILE           Write body to FILE"
+  echo "  -I                Headers only"
+  echo "  -L                Follow redirects (default: $MAX_REDIRECTS_DEFAULT)"
+  echo "  --max-redirs N    Set redirect limit"
+  echo "  -f                Fail on HTTP >= 400 (exit 22)"
+  echo "  -4                Force IPv4 (require A record; else exit 6)"
+  echo "  -6                Force IPv6 (require AAAA; else exit 6; no IPv4-mapped)"
+  echo "  -v, --verbose     Verbose (DNS, s_client args, redirects)"
+  echo "  -h, --help        Show this help"
+}
+
+logv() {
+  if [ -n "$verbose" ]
+  then
+    echo ">>> $*" >&2
+  fi
+}
+
+# -------- arg parsing --------
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    -s)
+      silent=1
+      shift
+    ;;
+    -S)
+      show_error=1
+      shift
+    ;;
+    -o)
+      shift
+      outfile=${1:-}
+      if [ -z "${outfile:-}" ]
+      then
+        usage
+        exit 2
+      fi
+      shift
+    ;;
+    -I)
+      head_only=1
+      shift
+    ;;
+    -L)
+      # following is on by default; keep switch for compatibility
+      shift
+    ;;
+    --max-redirs)
+      shift
+      max_redirs=${1:-}
+      if [ -z "${max_redirs:-}" ]
+      then
+        usage
+        exit 2
+      fi
+      shift
+    ;;
+    -f)
+      fail_on_error=1
+      shift
+    ;;
+    -4)
+      force_v4=1
+      force_v6=
+      shift
+    ;;
+    -6)
+      force_v6=1
+      force_v4=
+      shift
+    ;;
+    -v|--verbose)
+      verbose=1
+      shift
+    ;;
+    -h|--help)
+      usage
+      exit 0
+    ;;
+    -*)
+      usage
+      exit 2
+    ;;
+    *)
+      url=$1
+      shift
+      break
+    ;;
+  esac
+done
+
+if [ -z "${url:-}" ]
+then
+  usage
+  exit 2
+fi
+
+# default to https if no scheme
+case "$url" in
+  http://*|https://*) : ;;
+  *) url="https://$url" ;;
+esac
+
+# -------- helpers --------
+parse_url() {
+  _u=$1
+  case "$_u" in
+    https://*) proto=https; rest=${_u#https://} ;;
+    http://*)  proto=http;  rest=${_u#http://}  ;;
+    *)         proto=https; rest=$_u            ;;
+  esac
+
+  case "$rest" in
+    */*) hostport=${rest%%/*}; path="/${rest#*/}" ;;
+    *)   hostport=$rest;        path="/"          ;;
+  esac
+
+  case "$hostport" in
+    *:*) host=${hostport%:*}; port=${hostport#*:} ;;
+    *)   host=$hostport; [ "$proto" = https ] && port=443 || port=80 ;;
+  esac
+
+  printf '%s %s %s %s\n' "$proto" "$host" "$port" "$path"
+}
+
+resolve_ip_v4() {
+  _host=$1
+  ip=
+  if command -v getent >/dev/null 2>&1
+  then
+    ip=$(getent ahostsv4 "$_host" 2>/dev/null | awk 'NF{print $1; exit}')
+  fi
+  if [ -z "${ip:-}" ] && command -v nslookup >/dev/null 2>&1
+  then
+    ip=$(nslookup -type=A "$_host" 2>/dev/null | awk '/^Address: /{print $2; exit}')
+  fi
+  if [ -z "${ip:-}" ]
+  then
+    return 1
+  fi
+  printf '%s\n' "$ip"
+}
+
+resolve_ip_v6() {
+  _host=$1
+  ip6=
+  if command -v getent >/dev/null 2>&1
+  then
+    ip6=$(getent ahostsv6 "$_host" 2>/dev/null | awk '
+      {
+        ip=$1
+        # reject IPv4-mapped (::ffff:a.b.c.d) and ::a.b.c.d
+        if (ip ~ /^::ffff:/) next
+        if (ip ~ /::[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) next
+        if (index(ip, ":") > 0) { print ip; exit }
+      }')
+  fi
+  if [ -z "${ip6:-}" ] && command -v nslookup >/dev/null 2>&1
+  then
+    ip6=$(nslookup -type=AAAA "$_host" 2>/dev/null | awk '/has IPv6 address/ {print $NF; exit}')
+  fi
+  if [ -z "${ip6:-}" ]
+  then
+    return 1
+  fi
+  printf '%s\n' "$ip6"
+}
+
+bracket_if_ipv6() {
+  case "$1" in
+    *:*) printf '[%s]\n' "$1" ;;
+    *)   printf '%s\n' "$1"   ;;
+  esac
+}
+
+join_location() {
+  # Inputs: base_proto base_host base_port base_path location
+  bp=$1
+  bh=$2
+  bo=$3
+  bpath=$4
+  loc=$5
+
+  case "$loc" in
+    https://*|http://*)
+      printf '%s\n' "$loc"
+      return 0
+    ;;
+    //*)
+      printf '%s\n' "$bp:${loc}"
+      return 0
+    ;;
+    /*)
+      printf '%s://%s:%s%s\n' "$bp" "$bh" "$bo" "$loc"
+      return 0
+    ;;
+    *)
+      base_dir=${bpath%/*}
+      [ -n "$base_dir" ] || base_dir="/"
+      case "$base_dir" in */) : ;; *) base_dir="$base_dir/";; esac
+      printf '%s://%s:%s%s%s\n' "$bp" "$bh" "$bo" "$base_dir" "$loc"
+      return 0
+    ;;
+  esac
+}
+
+# fetch HTTPS response to files: headers -> $1, raw body -> $2
+# returns:
+#   0 success
+#   6 DNS family resolution failure (when -4/-6 forced)
+#   1 other failure
+fetch_https_stream() {
+  hdrf=$1
+  rawf=$2
+  sni_host=$3    # original hostname for SNI and Host header
+  connect_host=$4  # what to pass to -connect (hostname or resolved IP)
+  port=$5
+  path=$6
+
+  # Host header must be the original hostname; include port only if non-default
+  host_hdr=$sni_host
+  if [ "$port" -ne 443 ]
+  then
+    host_hdr="$sni_host:$port"
+  fi
+
+  req="GET $path HTTP/1.1\r\nHost: $host_hdr\r\nUser-Agent: curl-ossl\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+  connect_target="$(bracket_if_ipv6 "$connect_host"):$port"
+
+  for args in \
+    "-quiet -ign_eof -connect $connect_target -tls1_3 -servername $sni_host" \
+    "-quiet -ign_eof -connect $connect_target -tls1_2 -servername $sni_host" \
+    "-quiet -ign_eof -connect $connect_target -tls1_2"
+  do
+    logv "openssl s_client $args"
+    errf=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-err")
+
+    # Run; ignore s_client exit — validate by captured HTTP headers instead
+    printf '%b' "$req" \
+    | openssl s_client $args 2>"$errf" \
+    | {
+        : >"$hdrf"
+        while IFS= read -r line
+        do
+          line=$(printf '%s' "$line" | tr -d '\r')
+          [ -z "$line" ] && break
+          printf '%s\n' "$line" >>"$hdrf"
+        done
+        cat >"$rawf"
+      } || true
+
+    if head -n1 "$hdrf" | grep -q '^HTTP/'; then
+      logv "got HTTP response"
+      rm -f "$errf"
+      return 0
+    fi
+
+    if [ -z "$silent" ] || [ -n "$show_error" ] || [ -n "$verbose" ]
+    then
+      sed 's/^/openssl: /' "$errf" >&2 || true
+    fi
+    rm -f "$errf"
+  done
+
+  return 1
+}
+
+# decode chunked body (binary-safe): in=$1, out=$2
+dechunk_file() {
+  in=$1
+  out=$2
+  : >"$out"
+  exec 9<"$in"
+
+  while IFS= read -r -u 9 line
+  do
+    line=$(printf '%s' "$line" | tr -d '\r')
+    sizehex=${line%%;*}
+    [ -n "$sizehex" ] || continue
+    case "$sizehex" in *[!0-9a-fA-F]* ) break ;; esac
+    size=$((16#$(printf '%s' "$sizehex" | tr 'a-f' 'A-F')))
+    [ "$size" -gt 0 ] || break
+    dd bs=1 count="$size" <&9 >>"$out" 2>/dev/null || true
+    IFS= read -r -u 9 _ || true  # consume CRLF
+  done
+
+  exec 9<&-
+}
+
+# -------- main follow loop --------
+follow() {
+  cur=$1
+  n=0
+
+  while :; do
+    n=$((n+1))
+    [ "$n" -le "$max_redirs" ] || { echo "curl-ossl: too many redirects" >&2; return 22; }
+
+    set -- $(parse_url "$cur")
+    proto=$1; host=$2; port=$3; path=$4
+
+    if [ "$proto" != https ]
+    then
+      echo "curl-ossl: only https supported (got $proto)" >&2
+      return 2
+    fi
+
+    # Determine connect host (IP if -4/-6, else hostname)
+    connect_host=
+    if [ -n "$force_v4" ]
+    then
+      if connect_host=$(resolve_ip_v4 "$host")
+      then
+        logv "resolved IPv4: $connect_host"
+      else
+        logv "no A record for $host"
+        [ -z "$silent" ] && [ -n "$show_error" ] && echo "curl-ossl: could not resolve IPv4 for $host" >&2 || true
+        return 6
+      fi
+    elif [ -n "$force_v6" ]
+    then
+      if connect_host=$(resolve_ip_v6 "$host")
+      then
+        logv "resolved IPv6: $connect_host"
+      else
+        logv "no AAAA record for $host"
+        [ -z "$silent" ] && [ -n "$show_error" ] && echo "curl-ossl: could not resolve IPv6 for $host" >&2 || true
+        return 6
+      fi
+    else
+      connect_host="$host"
+      logv "using host as-is: $connect_host"
+    fi
+
+    logv "request: https://$host:$port$path"
+
+    hdrf=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-hdr")
+    rawf=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-raw")
+
+    if ! fetch_https_stream "$hdrf" "$rawf" "$host" "$connect_host" "$port" "$path"
+    then
+      rc=$?
+      rm -f "$hdrf" "$rawf"
+      case "$rc" in
+        6)  return 6 ;;
+        *)  [ -z "$silent" ] && echo "curl-ossl: connection failed" >&2; return 1 ;;
+      esac
+    fi
+
+    status=$(head -n1 "$hdrf" 2>/dev/null | awk '{print $2+0}')
+    [ -z "$status" ] && status=0
+    logv "HTTP status: $status"
+
+    if [ -n "$head_only" ]
+    then
+      cat "$hdrf"
+      rm -f "$hdrf" "$rawf"
+      return "$status"
+    fi
+
+    if [ "$status" -ge 300 ] && [ "$status" -lt 400 ]
+    then
+      loc=$(awk 'BEGIN{IGNORECASE=1} /^Location:/{sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$hdrf" | tr -d '\r')
+      [ -n "$loc" ] || { [ -z "$silent" ] && echo "curl-ossl: redirect without Location" >&2; rm -f "$hdrf" "$rawf"; return 22; }
+      newurl=$(join_location "$proto" "$host" "$port" "$path" "$loc")
+      logv "redirect to $newurl"
+      cur="$newurl"
+      rm -f "$hdrf" "$rawf"
+      continue
+    fi
+
+    te=$(awk 'BEGIN{IGNORECASE=1} /^Transfer-Encoding:/{print tolower($2)}' "$hdrf" | tr -d '\r')
+
+    bodyf="$rawf"
+    if [ "$te" = chunked ]
+    then
+      bodyf2=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-body")
+      dechunk_file "$rawf" "$bodyf2"
+      rm -f "$rawf"
+      bodyf="$bodyf2"
+    fi
+
+    if [ -n "${outfile:-}" ]
+    then
+      cat "$bodyf" >"$outfile"
+    else
+      cat "$bodyf"
+    fi
+
+    rm -f "$hdrf" "$bodyf"
+
+    if [ "$status" -ge 400 ] && [ -n "$fail_on_error" ]
+    then
+      return 22
+    fi
+
+    return 0
+  done
+}
+
+# -------- run --------
+set +e
+follow "$url"
+rc=$?
+set -e
+exit "$rc"

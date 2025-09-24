@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+# poorcat.sh — minimal interactive TTY bridge (like socat)
+
+if [ $# -lt 1 ]
+then
+  echo "Usage: $(basename "$0") DEVICE [BAUD]" >&2
+  exit 2
+fi
+
+DEVICE="$1"
+BAUD="${2:-115200}"
+
+# Configure TTY (ignore errors if unsupported)
+stty -F "$DEVICE" "$BAUD" -echo -icanon 2>/dev/null || \
+stty "$BAUD" -echo -icanon 2>/dev/null < "$DEVICE" || true
+
+# Start background reader
+cat < "$DEVICE" &
+READER_PID=$!
+
+cleanup() {
+  kill "$READER_PID" 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+# Main loop: read from stdin, write to device
+while IFS= read -r line
+do
+  # send line with CR
+  printf '%s\r' "$line" > "$DEVICE"
+done
