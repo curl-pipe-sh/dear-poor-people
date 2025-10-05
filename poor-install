@@ -1,0 +1,176 @@
+#!/usr/bin/env sh
+# poor-install — copy poor* tools into a destination directory
+
+set -eu
+
+usage() {
+  cat <<'USAGE' >&2
+Usage: poor-install [OPTIONS] [TOOL...]
+
+Options:
+  --dest DIR       Install into DIR (or set DEST environment variable)
+  --emulate        Strip leading "poor" when naming installed binaries
+  --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
+  --skip NAME      Alias for --ignore
+  -h, --help       Show this help
+
+If TOOL arguments are provided, only those tools are installed. Otherwise all
+available poor* scripts (except poor-install itself) are copied.
+USAGE
+}
+
+error_missing_arg() {
+  echo "poor-install: option '$1' requires an argument" >&2
+  usage
+  exit 2
+}
+
+list_contains() {
+  list=$1
+  needle=$2
+  for entry in $list; do
+    [ "$entry" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+resolve_name() {
+  target=$1
+  for script in $AVAILABLE_SCRIPTS; do
+    base=${script##*/}
+    alt=${base#poor}
+    if [ "$target" = "$base" ] || [ "$target" = "$alt" ]; then
+      echo "$script"
+      return 0
+    fi
+  done
+  return 1
+}
+
+DEST=${DEST:-}
+EMULATE=false
+IGNORE_ARGS=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dest)
+      shift
+      [ $# -gt 0 ] || error_missing_arg --dest
+      DEST=$1
+      shift
+      ;;
+    --dest=*)
+      DEST=${1#--dest=}
+      shift
+      ;;
+    --emulate)
+      EMULATE=true
+      shift
+      ;;
+    --ignore|--skip)
+      opt=$1
+      shift
+      [ $# -gt 0 ] || error_missing_arg "$opt"
+      IGNORE_ARGS="$IGNORE_ARGS $1"
+      shift
+      ;;
+    --ignore=*|--skip=*)
+      value=${1#*=}
+      IGNORE_ARGS="$IGNORE_ARGS $value"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "poor-install: unknown option '$1'" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+SELECT_ARGS=""
+while [ $# -gt 0 ]; do
+  SELECT_ARGS="$SELECT_ARGS $1"
+  shift
+done
+
+if [ -z "$DEST" ]; then
+  echo "poor-install: destination required (--dest or DEST env var)" >&2
+  exit 2
+fi
+
+mkdir -p "$DEST"
+
+AVAILABLE_SCRIPTS=""
+for path in poor*; do
+  [ -f "$path" ] || continue
+  case "$path" in
+    poor-install) continue ;;
+  esac
+  AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $path"
+done
+
+if [ -z "$AVAILABLE_SCRIPTS" ]; then
+  echo "poor-install: no tools found in current directory" >&2
+  exit 1
+fi
+
+IGNORE_SCRIPTS=""
+for name in $IGNORE_ARGS; do
+  if script=$(resolve_name "$name" 2>/dev/null); then
+    if ! list_contains "$IGNORE_SCRIPTS" "$script"; then
+      IGNORE_SCRIPTS="$IGNORE_SCRIPTS $script"
+    fi
+  else
+    echo "poor-install: warning: no tool matches '$name'" >&2
+  fi
+done
+
+TO_INSTALL=""
+if [ -n "$SELECT_ARGS" ]; then
+  for name in $SELECT_ARGS; do
+    if script=$(resolve_name "$name" 2>/dev/null); then
+      if ! list_contains "$TO_INSTALL" "$script"; then
+        TO_INSTALL="$TO_INSTALL $script"
+      fi
+    else
+      echo "poor-install: unknown tool '$name'" >&2
+      exit 2
+    fi
+  done
+else
+  TO_INSTALL="$AVAILABLE_SCRIPTS"
+fi
+
+installed=0
+for script in $TO_INSTALL; do
+  if list_contains "$IGNORE_SCRIPTS" "$script"; then
+    continue
+  fi
+  base=${script##*/}
+  dest_name=$base
+  if [ "$EMULATE" = true ]; then
+    stripped=${dest_name#poor}
+    if [ -n "$stripped" ]; then
+      dest_name=$stripped
+    fi
+  fi
+  cp "$script" "$DEST/$dest_name"
+  chmod +x "$DEST/$dest_name"
+  echo "$script -> $DEST/$dest_name"
+  installed=$((installed + 1))
+done
+
+if [ "$installed" -eq 0 ]; then
+  echo "poor-install: nothing installed" >&2
+fi
