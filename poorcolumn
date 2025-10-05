@@ -1,0 +1,165 @@
+#!/usr/bin/env sh
+# poorcolumn — minimal column(1) clone with basic -s/-t support
+
+set -eu
+
+usage() {
+  cat <<'USAGE' >&2
+Usage: poorcolumn [-t] [-s SEPARATOR] [FILE...]
+Align input into columns (table layout only).
+  -t             align fields as a table (accepted for compatibility)
+  -s SEPARATOR   split input using SEPARATOR instead of whitespace
+  -h, --help     show this help
+USAGE
+}
+
+SEP=''  # custom separator (literal string)
+SEP_SET=0
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -t)
+      # table layout is currently the only mode implemented
+      shift
+      ;;
+    -s)
+      if [ $# -lt 2 ]; then
+        echo "poorcolumn: -s requires an argument" >&2
+        usage
+        exit 2
+      fi
+      SEP=$2
+      SEP_SET=1
+      shift 2
+      ;;
+    -s*)
+      SEP=${1#-s}
+      if [ -z "$SEP" ]; then
+        echo "poorcolumn: -s requires an argument" >&2
+        usage
+        exit 2
+      fi
+      SEP_SET=1
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "poorcolumn: unsupported flag: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+
+done
+
+if [ "$SEP_SET" -eq 1 ] && [ -z "$SEP" ]; then
+  echo "poorcolumn: separator cannot be empty" >&2
+  exit 2
+fi
+
+awk -v SEP="$SEP" -v SEP_SET="$SEP_SET" '
+BEGIN {
+  sep_set = (SEP_SET + 0) != 0
+  colsep = "  "
+  FS = "[[:space:]]+"
+}
+{
+  line = $0
+  row += 1
+  if (line ~ /^[[:space:]]*$/) {
+    blank[row] = 1
+    next
+  }
+
+  delete fields
+  if (sep_set) {
+    n = split_literal(line, fields, SEP)
+  } else {
+    gsub(/^[[:space:]]+/, "", line)
+    gsub(/[[:space:]]+$/, "", line)
+    if (line == "") {
+      blank[row] = 1
+      next
+    }
+    n = split(line, fields)
+  }
+
+  cols_for_row[row] = n
+  if (n > cols) {
+    cols = n
+  }
+
+  for (i = 1; i <= n; i++) {
+    cell = trim(fields[i])
+    data[row, i] = cell
+    len = length(cell)
+    if (len > width[i]) {
+      width[i] = len
+    }
+  }
+}
+END {
+  for (r = 1; r <= row; r++) {
+    if (blank[r]) {
+      print ""
+      continue
+    }
+
+    n = cols_for_row[r]
+    if (n == 0) {
+      print ""
+      continue
+    }
+
+    for (i = 1; i <= cols; i++) {
+      cell = data[r, i]
+      w = width[i]
+      if (i < cols) {
+        if (w > 0) {
+          printf "%-*s", w, cell
+        } else {
+          printf "%s", cell
+        }
+        printf "%s", colsep
+      } else {
+        printf "%s", cell
+      }
+    }
+
+    printf "\n"
+  }
+}
+
+function trim(s,    t) {
+  t = s
+  sub(/^[[:space:]]+/, "", t)
+  sub(/[[:space:]]+$/, "", t)
+  return t
+}
+
+function split_literal(str, arr, sep,    n, pos, slen) {
+  n = 0
+  slen = length(sep)
+  if (slen == 0) {
+    arr[++n] = str
+    return n
+  }
+  while ((pos = index(str, sep)) > 0) {
+    arr[++n] = substr(str, 1, pos - 1)
+    str = substr(str, pos + slen)
+  }
+  arr[++n] = str
+  return n
+}
+' "$@"
