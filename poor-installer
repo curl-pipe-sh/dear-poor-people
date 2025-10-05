@@ -3,6 +3,18 @@
 
 set -eu
 
+# Ensure we run from the directory containing the script so we can find the tools
+SCRIPT_PATH=$0
+case "$SCRIPT_PATH" in
+  */*)
+    ;;  # already includes directory components
+  *)
+    SCRIPT_PATH=$(command -v -- "$SCRIPT_PATH" 2>/dev/null || echo "$SCRIPT_PATH")
+    ;;
+esac
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
+cd "$SCRIPT_DIR"
+
 usage() {
   cat <<'USAGE' >&2
 Usage: poor-install [OPTIONS] [TOOL...]
