@@ -77,6 +77,7 @@ BEGIN {
 {
   line = $0
   row += 1
+
   if (line ~ /^[[:space:]]*$/) {
     blank[row] = 1
     next
@@ -101,9 +102,9 @@ BEGIN {
   }
 
   for (i = 1; i <= n; i++) {
-    cell = trim(fields[i])
+    cell = fields[i]
     data[row, i] = cell
-    len = length(cell)
+    len = display_width(cell)
     if (len > width[i]) {
       width[i] = len
     }
@@ -126,26 +127,14 @@ END {
       cell = data[r, i]
       w = width[i]
       if (i < cols) {
-        if (w > 0) {
-          printf "%-*s", w, cell
-        } else {
-          printf "%s", cell
-        }
-        printf "%s", colsep
+        print_cell(cell, w, colsep)
       } else {
-        printf "%s", cell
+        print_cell(cell, w, "")
       }
     }
 
     printf "\n"
   }
-}
-
-function trim(s,    t) {
-  t = s
-  sub(/^[[:space:]]+/, "", t)
-  sub(/[[:space:]]+$/, "", t)
-  return t
 }
 
 function split_literal(str, arr, sep,    n, pos, slen) {
@@ -161,5 +150,28 @@ function split_literal(str, arr, sep,    n, pos, slen) {
   }
   arr[++n] = str
   return n
+}
+
+function print_cell(cell, width, sep,    pad) {
+  printf "%s", cell
+  pad = width - display_width(cell)
+  if (pad < 0) {
+    pad = 0
+  }
+  if (sep != "") {
+    while (pad-- > 0) {
+      printf " "
+    }
+    printf "%s", sep
+  }
+}
+
+function display_width(str, copy) {
+  copy = str
+  gsub(/\033\[[0-9;]*m/, "", copy)
+  gsub("\357\270\217", "", copy)  # strip variation selector-16
+  gsub("\342\200\215", "", copy)  # zero-width joiner
+  gsub("\342\200\214", "", copy)  # zero-width non-joiner
+  return length(copy)
 }
 ' "$@"
