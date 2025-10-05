@@ -10,6 +10,8 @@ Usage: poor-install [OPTIONS] [TOOL...]
 Options:
   --dest DIR       Install into DIR (or set DEST environment variable)
   --emulate        Strip leading "poor" when naming installed binaries
+  --clear          Remove DEST before install; with --uninstall try removing DEST after
+  --uninstall      Remove matching files instead of installing
   --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
   --skip NAME      Alias for --ignore
   -h, --help       Show this help
@@ -34,6 +36,24 @@ list_contains() {
   return 1
 }
 
+is_pattern() {
+  case "$1" in
+    *\**|*\?*|*\[*|*\]*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+matches_pattern() {
+  value=$1
+  pattern=$2
+  case "$value" in
+    $pattern) return 0 ;;
+  esac
+  return 1
+}
+
 resolve_name() {
   target=$1
   for script in $AVAILABLE_SCRIPTS; do
@@ -47,9 +67,28 @@ resolve_name() {
   return 1
 }
 
+expand_pattern_matches() {
+  pattern=$1
+  results=""
+  for script in $AVAILABLE_SCRIPTS; do
+    base=${script##*/}
+    alt=${base#poor}
+    if matches_pattern "$base" "$pattern" || matches_pattern "$alt" "$pattern"; then
+      results="$results $script"
+    fi
+  done
+  if [ -n "$results" ]; then
+    echo "$results"
+    return 0
+  fi
+  return 1
+}
+
 DEST=${DEST:-}
 EMULATE=false
 IGNORE_ARGS=""
+CLEAR_DEST=false
+UNINSTALL=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -65,6 +104,14 @@ while [ $# -gt 0 ]; do
       ;;
     --emulate)
       EMULATE=true
+      shift
+      ;;
+    --clear)
+      CLEAR_DEST=true
+      shift
+      ;;
+    --uninstall)
+      UNINSTALL=true
       shift
       ;;
     --ignore|--skip)
@@ -109,7 +156,17 @@ if [ -z "$DEST" ]; then
   exit 2
 fi
 
-mkdir -p "$DEST"
+if [ "$UNINSTALL" = true ]; then
+  if [ ! -d "$DEST" ]; then
+    echo "poor-install: destination '$DEST' does not exist; nothing to uninstall" >&2
+    exit 0
+  fi
+else
+  mkdir -p "$DEST"
+  if [ "$CLEAR_DEST" = true ] && [ -d "$DEST" ]; then
+    find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+  fi
+fi
 
 AVAILABLE_SCRIPTS=""
 for path in poor*; do
@@ -127,6 +184,20 @@ fi
 
 IGNORE_SCRIPTS=""
 for name in $IGNORE_ARGS; do
+  [ -n "$name" ] || continue
+  if is_pattern "$name"; then
+    if matches=$(expand_pattern_matches "$name" 2>/dev/null); then
+      for script in $matches; do
+        if ! list_contains "$IGNORE_SCRIPTS" "$script"; then
+          IGNORE_SCRIPTS="$IGNORE_SCRIPTS $script"
+        fi
+      done
+      continue
+    else
+      echo "poor-install: warning: no tool matches pattern '$name'" >&2
+      continue
+    fi
+  fi
   if script=$(resolve_name "$name" 2>/dev/null); then
     if ! list_contains "$IGNORE_SCRIPTS" "$script"; then
       IGNORE_SCRIPTS="$IGNORE_SCRIPTS $script"
@@ -139,6 +210,20 @@ done
 TO_INSTALL=""
 if [ -n "$SELECT_ARGS" ]; then
   for name in $SELECT_ARGS; do
+    [ -n "$name" ] || continue
+    if is_pattern "$name"; then
+      if matches=$(expand_pattern_matches "$name" 2>/dev/null); then
+        for script in $matches; do
+          if ! list_contains "$TO_INSTALL" "$script"; then
+            TO_INSTALL="$TO_INSTALL $script"
+          fi
+        done
+        continue
+      else
+        echo "poor-install: unknown tool pattern '$name'" >&2
+        exit 2
+      fi
+    fi
     if script=$(resolve_name "$name" 2>/dev/null); then
       if ! list_contains "$TO_INSTALL" "$script"; then
         TO_INSTALL="$TO_INSTALL $script"
@@ -153,6 +238,7 @@ else
 fi
 
 installed=0
+removed=0
 for script in $TO_INSTALL; do
   if list_contains "$IGNORE_SCRIPTS" "$script"; then
     continue
@@ -165,12 +251,34 @@ for script in $TO_INSTALL; do
       dest_name=$stripped
     fi
   fi
-  cp "$script" "$DEST/$dest_name"
-  chmod +x "$DEST/$dest_name"
-  echo "$script -> $DEST/$dest_name"
-  installed=$((installed + 1))
+  dest_path="$DEST/$dest_name"
+  if [ "$UNINSTALL" = true ]; then
+    if [ -e "$dest_path" ]; then
+      rm -f "$dest_path"
+      echo "removed $dest_path"
+      removed=$((removed + 1))
+    else
+      echo "poor-install: warning: not found $dest_path" >&2
+    fi
+  else
+    cp "$script" "$dest_path"
+    chmod +x "$dest_path"
+    echo "$script -> $dest_path"
+    installed=$((installed + 1))
+  fi
 done
 
-if [ "$installed" -eq 0 ]; then
-  echo "poor-install: nothing installed" >&2
+if [ "$UNINSTALL" = true ]; then
+  if [ "$removed" -eq 0 ]; then
+    echo "poor-install: nothing removed" >&2
+  fi
+  if [ "$CLEAR_DEST" = true ]; then
+    if ! rmdir "$DEST" 2>/dev/null; then
+      echo "poor-install: warning: could not remove '$DEST' (not empty?)" >&2
+    fi
+  fi
+else
+  if [ "$installed" -eq 0 ]; then
+    echo "poor-install: nothing installed" >&2
+  fi
 fi
