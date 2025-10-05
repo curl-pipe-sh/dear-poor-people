@@ -22,7 +22,8 @@ do
   esac
 done
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
-cd "$SCRIPT_DIR"
+SOURCE_DIR=$SCRIPT_DIR
+cd "$SOURCE_DIR"
 
 usage() {
   cat <<'USAGE' >&2
@@ -38,7 +39,7 @@ Options:
   -h, --help       Show this help
 
 If TOOL arguments are provided, only those tools are installed. Otherwise all
-available poor* scripts (except poor-install itself) are copied.
+available poor* scripts are copied.
 USAGE
 }
 
@@ -211,6 +212,7 @@ else
   if [ "$CLEAR_DEST" = true ] && [ -d "$DEST" ]
   then
     find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    echo "cleared $DEST"
   fi
 fi
 
@@ -338,6 +340,15 @@ do
       echo "warning: not found $DEST_PATH" >&2
     fi
   else
+    if [ "$BASE_NAME" = "poor-installer" ]
+    then
+      if ln -sf "$SOURCE_DIR/$SCRIPT_PATH" "$DEST_PATH" 2>/dev/null
+      then
+        echo "$SCRIPT_PATH -> $DEST_PATH"
+        INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+        continue
+      fi
+    fi
     cp "$SCRIPT_PATH" "$DEST_PATH"
     chmod +x "$DEST_PATH"
     echo "$SCRIPT_PATH -> $DEST_PATH"
