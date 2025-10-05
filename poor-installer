@@ -5,13 +5,22 @@ set -eu
 
 # Ensure we run from the directory containing the script so we can find the tools
 SCRIPT_PATH=$0
-case "$SCRIPT_PATH" in
-  */*)
-    ;;  # already includes directory components
-  *)
-    SCRIPT_PATH=$(command -v -- "$SCRIPT_PATH" 2>/dev/null || echo "$SCRIPT_PATH")
-    ;;
-esac
+if [ "${SCRIPT_PATH%/*}" = "$SCRIPT_PATH" ]
+then
+  SCRIPT_PATH=$(command -v -- "$SCRIPT_PATH" 2>/dev/null || echo "$SCRIPT_PATH")
+fi
+while LINK_TARGET=$(readlink "$SCRIPT_PATH" 2>/dev/null)
+do
+  case "$LINK_TARGET" in
+    /*)
+      SCRIPT_PATH=$LINK_TARGET
+      ;;
+    *)
+      SCRIPT_DIRNAME=$(dirname -- "$SCRIPT_PATH")
+      SCRIPT_PATH=$SCRIPT_DIRNAME/$LINK_TARGET
+      ;;
+  esac
+done
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
 cd "$SCRIPT_DIR"
 
@@ -22,7 +31,7 @@ Usage: poor-install [OPTIONS] [TOOL...]
 Options:
   --dest DIR       Install into DIR (or set DEST environment variable)
   --emulate        Strip leading "poor" when naming installed binaries
-  --clear          Remove DEST before install; with --uninstall try removing DEST after
+  --clear          Remove DEST before install. With --uninstall try removing DEST after
   --uninstall      Remove matching files instead of installing
   --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
   --skip NAME      Alias for --ignore
@@ -34,16 +43,20 @@ USAGE
 }
 
 error_missing_arg() {
-  echo "poor-install: option '$1' requires an argument" >&2
+  echo "option '$1' requires an argument" >&2
   usage
   exit 2
 }
 
 list_contains() {
-  list=$1
-  needle=$2
-  for entry in $list; do
-    [ "$entry" = "$needle" ] && return 0
+  LIST=$1
+  NEEDLE=$2
+  for ENTRY in $LIST
+  do
+    if [ "$ENTRY" = "$NEEDLE" ]
+    then
+      return 0
+    fi
   done
   return 1
 }
@@ -58,21 +71,26 @@ is_pattern() {
 }
 
 matches_pattern() {
-  value=$1
-  pattern=$2
-  case "$value" in
-    $pattern) return 0 ;;
+  VALUE=$1
+  PATTERN=$2
+  case "$VALUE" in
+    $PATTERN)
+      return 0
+      ;;
   esac
   return 1
 }
 
 resolve_name() {
-  target=$1
-  for script in $AVAILABLE_SCRIPTS; do
-    base=${script##*/}
-    alt=${base#poor}
-    if [ "$target" = "$base" ] || [ "$target" = "$alt" ]; then
-      echo "$script"
+  TARGET=$1
+  for SCRIPT_CANDIDATE in $AVAILABLE_SCRIPTS
+  do
+    BASE_NAME=${SCRIPT_CANDIDATE##*/}
+    ALT_NAME=${BASE_NAME#poor}
+    ALT_NAME=${ALT_NAME#-}
+    if [ "$TARGET" = "$BASE_NAME" ] || [ "$TARGET" = "$ALT_NAME" ]
+    then
+      echo "$SCRIPT_CANDIDATE"
       return 0
     fi
   done
@@ -80,17 +98,21 @@ resolve_name() {
 }
 
 expand_pattern_matches() {
-  pattern=$1
-  results=""
-  for script in $AVAILABLE_SCRIPTS; do
-    base=${script##*/}
-    alt=${base#poor}
-    if matches_pattern "$base" "$pattern" || matches_pattern "$alt" "$pattern"; then
-      results="$results $script"
+  PATTERN=$1
+  RESULTS=""
+  for SCRIPT_CANDIDATE in $AVAILABLE_SCRIPTS
+  do
+    BASE_NAME=${SCRIPT_CANDIDATE##*/}
+    ALT_NAME=${BASE_NAME#poor}
+    ALT_NAME=${ALT_NAME#-}
+    if matches_pattern "$BASE_NAME" "$PATTERN" || matches_pattern "$ALT_NAME" "$PATTERN"
+    then
+      RESULTS="$RESULTS $SCRIPT_CANDIDATE"
     fi
   done
-  if [ -n "$results" ]; then
-    echo "$results"
+  if [ -n "$RESULTS" ]
+  then
+    echo "$RESULTS"
     return 0
   fi
   return 1
@@ -102,11 +124,15 @@ IGNORE_ARGS=""
 CLEAR_DEST=false
 UNINSTALL=false
 
-while [ $# -gt 0 ]; do
+while [ $# -gt 0 ]
+do
   case "$1" in
     --dest)
       shift
-      [ $# -gt 0 ] || error_missing_arg --dest
+      if [ $# -eq 0 ]
+      then
+        error_missing_arg --dest
+      fi
       DEST=$1
       shift
       ;;
@@ -127,15 +153,18 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --ignore|--skip)
-      opt=$1
+      OPTION_NAME=$1
       shift
-      [ $# -gt 0 ] || error_missing_arg "$opt"
+      if [ $# -eq 0 ]
+      then
+        error_missing_arg "$OPTION_NAME"
+      fi
       IGNORE_ARGS="$IGNORE_ARGS $1"
       shift
       ;;
     --ignore=*|--skip=*)
-      value=${1#*=}
-      IGNORE_ARGS="$IGNORE_ARGS $value"
+      OPTION_VALUE=${1#*=}
+      IGNORE_ARGS="$IGNORE_ARGS $OPTION_VALUE"
       shift
       ;;
     -h|--help)
@@ -147,7 +176,7 @@ while [ $# -gt 0 ]; do
       break
       ;;
     -*)
-      echo "poor-install: unknown option '$1'" >&2
+      echo "unknown option '$1'" >&2
       usage
       exit 2
       ;;
@@ -158,90 +187,117 @@ while [ $# -gt 0 ]; do
 done
 
 SELECT_ARGS=""
-while [ $# -gt 0 ]; do
+while [ $# -gt 0 ]
+do
   SELECT_ARGS="$SELECT_ARGS $1"
   shift
 done
 
-if [ -z "$DEST" ]; then
-  echo "poor-install: destination required (--dest or DEST env var)" >&2
+if [ -z "$DEST" ]
+then
+  echo "destination required (--dest or DEST env var)" >&2
   exit 2
 fi
 
-if [ "$UNINSTALL" = true ]; then
-  if [ ! -d "$DEST" ]; then
-    echo "poor-install: destination '$DEST' does not exist; nothing to uninstall" >&2
+if [ "$UNINSTALL" = true ]
+then
+  if [ ! -d "$DEST" ]
+  then
+    echo "destination '$DEST' does not exist, nothing to uninstall" >&2
     exit 0
   fi
 else
   mkdir -p "$DEST"
-  if [ "$CLEAR_DEST" = true ] && [ -d "$DEST" ]; then
+  if [ "$CLEAR_DEST" = true ] && [ -d "$DEST" ]
+  then
     find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
   fi
 fi
 
 AVAILABLE_SCRIPTS=""
-for path in poor*; do
-  [ -f "$path" ] || continue
-  case "$path" in
-    poor-install) continue ;;
-  esac
-  AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $path"
+for SCRIPT_PATH_CANDIDATE in poor*
+do
+  if [ -f "$SCRIPT_PATH_CANDIDATE" ]
+  then
+    AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $SCRIPT_PATH_CANDIDATE"
+  fi
 done
 
-if [ -z "$AVAILABLE_SCRIPTS" ]; then
-  echo "poor-install: no tools found in current directory" >&2
+if [ -z "$AVAILABLE_SCRIPTS" ]
+then
+  echo "no tools found in current directory" >&2
   exit 1
 fi
 
 IGNORE_SCRIPTS=""
-for name in $IGNORE_ARGS; do
-  [ -n "$name" ] || continue
-  if is_pattern "$name"; then
-    if matches=$(expand_pattern_matches "$name" 2>/dev/null); then
-      for script in $matches; do
-        if ! list_contains "$IGNORE_SCRIPTS" "$script"; then
-          IGNORE_SCRIPTS="$IGNORE_SCRIPTS $script"
+for NAME_ARG in $IGNORE_ARGS
+do
+  if [ -z "$NAME_ARG" ]
+  then
+    continue
+  fi
+  if is_pattern "$NAME_ARG"
+  then
+    if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+    then
+      for SCRIPT_CANDIDATE in $MATCHES
+      do
+        if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_CANDIDATE"
+        then
+          IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_CANDIDATE"
         fi
       done
       continue
     else
-      echo "poor-install: warning: no tool matches pattern '$name'" >&2
+      echo "warning: no tool matches pattern '$NAME_ARG'" >&2
       continue
     fi
   fi
-  if script=$(resolve_name "$name" 2>/dev/null); then
-    if ! list_contains "$IGNORE_SCRIPTS" "$script"; then
-      IGNORE_SCRIPTS="$IGNORE_SCRIPTS $script"
+  if SCRIPT_MATCH=$(resolve_name "$NAME_ARG" 2>/dev/null)
+  then
+    if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_MATCH"
+    then
+      IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_MATCH"
     fi
   else
-    echo "poor-install: warning: no tool matches '$name'" >&2
+    echo "warning: no tool matches '$NAME_ARG'" >&2
   fi
 done
 
 TO_INSTALL=""
-if [ -n "$SELECT_ARGS" ]; then
-  for name in $SELECT_ARGS; do
-    [ -n "$name" ] || continue
-    if is_pattern "$name"; then
-      if matches=$(expand_pattern_matches "$name" 2>/dev/null); then
-        for script in $matches; do
-          if ! list_contains "$TO_INSTALL" "$script"; then
-            TO_INSTALL="$TO_INSTALL $script"
+if [ -n "$SELECT_ARGS" ]
+then
+  for NAME_ARG in $SELECT_ARGS
+  do
+    if [ -z "$NAME_ARG" ]
+    then
+      continue
+    fi
+    if is_pattern "$NAME_ARG"
+    then
+      if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+      then
+        for SCRIPT_CANDIDATE in $MATCHES
+        do
+          if ! list_contains "$TO_INSTALL" "$SCRIPT_CANDIDATE"
+          then
+            TO_INSTALL="$TO_INSTALL $SCRIPT_CANDIDATE"
           fi
         done
         continue
       else
-        echo "poor-install: unknown tool pattern '$name'" >&2
+        echo "unknown tool pattern '$NAME_ARG'" >&2
         exit 2
       fi
     fi
-    if script=$(resolve_name "$name" 2>/dev/null); then
-      if ! list_contains "$TO_INSTALL" "$script"; then
-        TO_INSTALL="$TO_INSTALL $script"
+    if SCRIPT_MATCH=$(resolve_name "$NAME_ARG" 2>/dev/null)
+    then
+      if ! list_contains "$TO_INSTALL" "$SCRIPT_MATCH"
+      then
+        TO_INSTALL="$TO_INSTALL $SCRIPT_MATCH"
       fi
     else
-      echo "poor-install: unknown tool '$name'" >&2
+      echo "unknown tool '$NAME_ARG'" >&2
       exit 2
     fi
   done
@@ -249,48 +305,62 @@ else
   TO_INSTALL="$AVAILABLE_SCRIPTS"
 fi
 
-installed=0
-removed=0
-for script in $TO_INSTALL; do
-  if list_contains "$IGNORE_SCRIPTS" "$script"; then
+INSTALLED_COUNT=0
+REMOVED_COUNT=0
+for SCRIPT_PATH in $TO_INSTALL
+do
+  if list_contains "$IGNORE_SCRIPTS" "$SCRIPT_PATH"
+  then
     continue
   fi
-  base=${script##*/}
-  dest_name=$base
-  if [ "$EMULATE" = true ]; then
-    stripped=${dest_name#poor}
-    if [ -n "$stripped" ]; then
-      dest_name=$stripped
+  BASE_NAME=${SCRIPT_PATH##*/}
+  DEST_NAME=$BASE_NAME
+  if [ "$EMULATE" = true ]
+  then
+    if [ "$BASE_NAME" != "poor-installer" ]
+    then
+      STRIPPED_NAME=${DEST_NAME#poor}
+      if [ -n "$STRIPPED_NAME" ]
+      then
+        DEST_NAME=$STRIPPED_NAME
+      fi
     fi
   fi
-  dest_path="$DEST/$dest_name"
-  if [ "$UNINSTALL" = true ]; then
-    if [ -e "$dest_path" ]; then
-      rm -f "$dest_path"
-      echo "removed $dest_path"
-      removed=$((removed + 1))
+  DEST_PATH="$DEST/$DEST_NAME"
+  if [ "$UNINSTALL" = true ]
+  then
+    if [ -e "$DEST_PATH" ]
+    then
+      rm -f "$DEST_PATH"
+      echo "removed $DEST_PATH"
+      REMOVED_COUNT=$((REMOVED_COUNT + 1))
     else
-      echo "poor-install: warning: not found $dest_path" >&2
+      echo "warning: not found $DEST_PATH" >&2
     fi
   else
-    cp "$script" "$dest_path"
-    chmod +x "$dest_path"
-    echo "$script -> $dest_path"
-    installed=$((installed + 1))
+    cp "$SCRIPT_PATH" "$DEST_PATH"
+    chmod +x "$DEST_PATH"
+    echo "$SCRIPT_PATH -> $DEST_PATH"
+    INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
   fi
 done
 
-if [ "$UNINSTALL" = true ]; then
-  if [ "$removed" -eq 0 ]; then
-    echo "poor-install: nothing removed" >&2
+if [ "$UNINSTALL" = true ]
+then
+  if [ "$REMOVED_COUNT" -eq 0 ]
+  then
+    echo "nothing removed" >&2
   fi
-  if [ "$CLEAR_DEST" = true ]; then
-    if ! rmdir "$DEST" 2>/dev/null; then
-      echo "poor-install: warning: could not remove '$DEST' (not empty?)" >&2
+  if [ "$CLEAR_DEST" = true ]
+  then
+    if ! rmdir "$DEST" 2>/dev/null
+    then
+      echo "warning: could not remove '$DEST' (not empty?)" >&2
     fi
   fi
 else
-  if [ "$installed" -eq 0 ]; then
-    echo "poor-install: nothing installed" >&2
+  if [ "$INSTALLED_COUNT" -eq 0 ]
+  then
+    echo "nothing installed" >&2
   fi
 fi
