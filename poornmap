@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
@@ -10,7 +10,7 @@ PING_SCAN=1
 JSON_OUTPUT=0
 PORTS=""
 HOST=""
-# shellcheck disable=SC2034  # Used by echo.sh functions  
+# shellcheck disable=SC2034  # Used by echo.sh functions
 SCRIPT_NAME="poornmap"
 PROG="${PROG:-}"  # Environment variable for tool override
 
