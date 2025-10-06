@@ -84,9 +84,7 @@ def test_all_tool_endpoints() -> None:
         response = client.get(endpoint)
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/plain; charset=utf-8"
-        assert (
-            "tcp_port_check" in response.text or "#!/usr/bin/env bash" in response.text
-        )
+        assert "detect_netcat_tool" in response.text
 
     # Test curl endpoints
     for endpoint in ["/curl", "/poorcurl"]:
@@ -118,8 +116,9 @@ def test_templating_disabled() -> None:
     """Test that templating can be disabled."""
     response = client.get("/install?no_templating=1")
     assert response.status_code == 200
-    # With templating disabled, INCLUDE_FILE comments should remain as-is
-    assert "INCLUDE_FILE:" in response.text
+    # With templating disabled, the source xxx # <TEMPLATE> comments should
+    # remain as-is
+    assert "# <TEMPLATE>" in response.text
 
 
 def test_templating_enabled() -> None:
@@ -163,7 +162,7 @@ def test_templating_parameter(no_templating: str | None) -> None:
 
     if no_templating == "1":
         # Should contain raw template
-        assert "INCLUDE_FILE:" in response.text
+        assert "# <TEMPLATE>" in response.text
     else:
         # Should have processed template
         assert "has_command" in response.text or "echo_success" in response.text
