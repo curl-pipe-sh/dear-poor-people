@@ -154,17 +154,17 @@ if [ "$TOOL_NAME" = "all" ]; then
       curl)
         if curl -fsSL "$tool_url" -o "$tool_target"; then
           chmod +x "$tool_target"
-          echo_success "✅ Installed $tool_bin"
+          echo_success "Installed $tool_bin"
         else
-          echo_error "❌ Failed to download $tool"
+          echo_error "Failed to download $tool"
         fi
         ;;
       wget)
         if wget -q "$tool_url" -O "$tool_target"; then
           chmod +x "$tool_target"
-          echo_success "✅ Installed $tool_bin"
+          echo_success "Installed $tool_bin"
         else
-          echo_error "❌ Failed to download $tool"
+          echo_error "Failed to download $tool"
         fi
         ;;
     esac
