@@ -204,9 +204,13 @@ def process_includes(content: str, base_dir: Path) -> str:
             else:
                 # If file doesn't exist, keep the original line
                 processed_lines.append(line)
-        elif source_match or dot_match:
-            match = source_match or dot_match
-            include_path = match.group(1).strip()
+        elif source_match is not None or dot_match is not None:
+            if source_match is not None:
+                m = source_match  # re.Match[str]
+            else:
+                # dot_match must be non-None here
+                m = dot_match  # type: ignore[assignment]
+            include_path = m.group(1).strip()
             include_file = base_dir / include_path
 
             if include_file.exists():
