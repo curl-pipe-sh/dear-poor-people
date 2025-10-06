@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install
+
+    - name: Install dependencies
+      run: uv sync --all-extras --dev
+
+    - name: Check code formatting
+      id: format
+      continue-on-error: true
+      run: uv run ruff format --check .
+
+    - name: Check code linting
+      id: lint
+      continue-on-error: true
+      run: uv run ruff check .
+
+    - name: Check import sorting
+      id: imports
+      continue-on-error: true
+      run: uv run ruff check --select I --diff .
+
+    - name: Type check with mypy
+      id: typecheck
+      continue-on-error: true
+      run: uv run mypy main.py
+
+    - name: Check results
+      if: steps.format.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.imports.outcome == 'failure' || steps.typecheck.outcome == 'failure'
+      run: |
+        echo "❌ Some linting checks failed:"
+        echo "- Format check: ${{ steps.format.outcome }}"
+        echo "- Lint check: ${{ steps.lint.outcome }}"
+        echo "- Import sorting: ${{ steps.imports.outcome }}"
+        echo "- Type checking: ${{ steps.typecheck.outcome }}"
+        exit 1
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install
+
+    - name: Install dependencies
+      run: uv sync --all-extras --dev
+
+    - name: Test with pytest
+      run: uv run pytest tests/ -v
