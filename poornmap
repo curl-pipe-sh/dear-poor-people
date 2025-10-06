@@ -22,11 +22,12 @@ echo_fancy() {
     line_fmt="${color}${prefix}\033[0m $*"
   fi
 
-  printf '%s\n' "$line_fmt" >&2
+  # Use printf with \n for POSIX compatibility, but ensure colors work
+  printf '%b\n' "$line_fmt" >&2
 
   # Optionally log to syslog
   [ -z "$ECHO_SYSLOG" ] && return 0
-  logger -t "$SCRIPT_NAME" "$(printf '%s\n' "$line_fmt")"
+  logger -t "$SCRIPT_NAME" "$(printf '%b\n' "$line_fmt")"
 }
 
 echo_info() {
@@ -77,6 +78,7 @@ JSON_OUTPUT=0
 PORTS=""
 HOST=""
 SCRIPT_NAME="poornmap"
+PROG="${PROG:-}"  # Environment variable for tool override
 
 # Tool detection results
 NETCAT_TOOL=""
@@ -95,12 +97,20 @@ Options:
   -Pn              Skip ping scan (disable host discovery)
   --timeout SECS   Timeout in seconds (default: $TIMEOUT)
   --json           Output results in JSON format
+  --prog TOOL      Force specific tool (ncat, nc, netcat, busybox, bash)
   -h, --help       Show this help message
+
+Environment Variables:
+  PROG             Same as --prog, override tool detection
+  NO_COLOR         Disable colored output
+  QUIET            Suppress info messages
 
 Examples:
   $0 -p 22,80,443 example.com
   $0 -p 1-1000 -Pn 192.168.1.1
   $0 --json -p 80,443 google.com
+  $0 --prog nc -p 22 github.com
+  PROG=bash $0 -p 443 example.com
 EOF
 }
 
