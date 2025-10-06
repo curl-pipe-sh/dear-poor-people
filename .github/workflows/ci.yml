@@ -22,7 +22,7 @@ jobs:
     - name: Check formatting with Ruff
       uses: astral-sh/ruff-action@v1
       with:
-        src: "./poor_installer_web"
+        src: "."
         args: "format --check"
 
   mypy:
