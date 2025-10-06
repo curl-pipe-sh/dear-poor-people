@@ -72,7 +72,7 @@ info:
     @echo "📦 poor-tools Web Installer"
     @echo "🐍 Python version: $(python --version)"
     @echo "📋 Available tools:"
-    @ls -1 poor* | head -10
+    @find -maxdepth 1 -type f -name "poor*" -exec basename {} \; | sort
 
 # Run comprehensive CI checks (what CI would run)
 ci: install lint format-check typecheck test
