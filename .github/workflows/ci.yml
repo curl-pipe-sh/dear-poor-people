@@ -2,12 +2,31 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
-  lint:
+  ruff:
+    name: Ruff (Python linting & formatting)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Lint with Ruff
+      uses: astral-sh/ruff-action@v1
+      with:
+        src: "./poor_installer_web"
+        args: "check --output-format=github"
+
+    - name: Check formatting with Ruff
+      uses: astral-sh/ruff-action@v1
+      with:
+        src: "./poor_installer_web"
+        args: "format --check"
+
+  mypy:
+    name: MyPy (Python type checking)
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -25,29 +44,20 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras --dev
 
-    - name: Lint and format with Ruff
-      uses: astral-sh/ruff-action@v1
-      with:
-        src: "./poor_installer_web"
-        args: "check --output-format=github"
-
-    - name: Check code formatting with Ruff
-      uses: astral-sh/ruff-action@v1
-      with:
-        src: "./poor_installer_web"
-        args: "format --check"
-
-    - name: Type check with mypy
+    - name: Type check with MyPy
       run: uv run mypy poor_installer_web/*.py
 
-    - name: Lint shell scripts with shellcheck
+  shellcheck:
+    name: ShellCheck (Shell script linting)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Lint shell scripts with ShellCheck
       uses: ludeeus/action-shellcheck@master
-      with:
-        scandir: './lib ./templates'
-        additional_files: 'poorcolumn poorcurl poorcurl-openssl poor-installer poornmap poorsocat'
-        severity: error
 
   hadolint:
+    name: Hadolint (Dockerfile linting)
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -58,6 +68,7 @@ jobs:
         failure-threshold: error
 
   test:
+    name: Pytest (Python testing)
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
