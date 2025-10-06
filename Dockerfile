@@ -2,11 +2,12 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Copy all source files
+# Copy all source files first
 COPY . .
 
-# Install dependencies using pip
-RUN pip install --no-cache-dir .
+# Install the package using pip with editable mode to ensure data files are included
+# hadolint ignore=DL3013
+RUN pip install --no-cache-dir -e .
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
@@ -24,4 +25,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"BIND_PORT\", \"7667\")}/health')"
 
 # Run the application
-CMD ["python", "main.py"]
+CMD ["poor-installer-web"]

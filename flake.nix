@@ -36,11 +36,11 @@
             ...
           }:
           let
-            cfg = config.services.poor-tools-web;
-            pkg = self.packages.${config.nixpkgs.hostPlatform.system}.poor-tools-web;
+            cfg = config.services.poor-installer-web;
+            pkg = self.packages.${config.nixpkgs.hostPlatform.system}.poor-installer-web;
           in
           {
-            options.services.poor-tools-web = {
+            options.services.poor-installer-web = {
               enable = lib.mkEnableOption "poor-tools web installer";
 
               bindPort = lib.mkOption {
@@ -57,7 +57,7 @@
             };
 
             config = lib.mkIf cfg.enable {
-              systemd.services.poor-tools-web = {
+              systemd.services.poor-installer-web = {
                 description = "poor-tools web installer";
                 wantedBy = [ "multi-user.target" ];
                 after = [ "network.target" ];
@@ -69,7 +69,7 @@
 
                 serviceConfig = {
                   Type = "simple";
-                  ExecStart = "${pkg}/bin/poor-tools-web";
+                  ExecStart = "${pkg}/bin/poor-installer-web";
                   Restart = "always";
                   RestartSec = 10;
 
@@ -130,51 +130,36 @@
               && !(pkgs.lib.hasInfix ".mypy_cache" path);
           };
 
-          poor-tools-web = pkgs.stdenv.mkDerivation {
-            pname = "poor-tools-web";
+          poor-installer-web = pkgs.python313Packages.buildPythonPackage {
+            pname = "poor-installer-web";
             version = "0.1.0";
-
+            pyproject = true;
             src = cleanSrc;
 
-            nativeBuildInputs = [
-              pythonEnv
+            nativeBuildInputs = with pkgs.python313Packages; [
+              hatchling
             ];
 
-            buildPhase = ''
-              mkdir -p $out/share/poor-tools-web
+            propagatedBuildInputs = with pkgs.python313Packages; [
+              fastapi
+              uvicorn
+            ];
 
-              # Copy all source files
-              cp -r * $out/share/poor-tools-web/
-
-              # Create simple wrapper script
-              mkdir -p $out/bin
-
-              cat > $out/bin/poor-tools-web << 'EOF'
-              #!/usr/bin/env bash
-              cd "$out_placeholder/share/poor-tools-web"
-              exec ${pythonEnv}/bin/python main.py "$@"
-              EOF
-
-              # Replace placeholder with actual output path
-              sed -i "s|\$out_placeholder|$out|g" $out/bin/poor-tools-web
-
-              chmod +x $out/bin/poor-tools-web
-            '';
-
-            installPhase = "true"; # Already done in buildPhase
+            # Sanity check import at build time
+            pythonImportsCheck = [ "poor_installer_web" ];
 
             meta = with pkgs.lib; {
               description = "Web installer for poor-tools command-line utilities";
               homepage = "https://github.com/pschmitt/poor-tools";
               license = licenses.gpl3Only;
-              maintainers = [ ];
+              maintainers = [ maintainers.pschmitt ];
               platforms = platforms.all;
-              mainProgram = "poor-tools-web";
+              mainProgram = "poor-installer-web";
             };
           };
 
           dockerImage = pkgs.dockerTools.buildLayeredImage {
-            name = "poor-tools-web";
+            name = "poor-installer-web";
             tag = "latest";
 
             contents = [
@@ -186,8 +171,8 @@
             ];
 
             config = {
-              Cmd = [ "${poor-tools-web}/bin/poor-tools-web" ];
-              WorkingDir = "${poor-tools-web}/share/poor-tools-web";
+              Cmd = [ "${poor-installer-web}/bin/poor-installer-web" ];
+              WorkingDir = "${poor-installer-web}/share/poor-installer-web";
               ExposedPorts."7667/tcp" = { };
               Env = [
                 "BIND_HOST=0.0.0.0"
@@ -221,7 +206,7 @@
               # Type checking
               mypy = {
                 enable = true;
-                files = "main\\.py$";
+                files = "poor_installer_web/.*\\.py$";
               };
 
               # Tests
@@ -248,29 +233,19 @@
               nixfmt-rfc-style = {
                 enable = true;
               };
-
-              # Trailing whitespace
-              trailing-whitespace = {
-                enable = true;
-              };
-
-              # End of file newline
-              end-of-file-fixer = {
-                enable = true;
-              };
             };
           };
         in
         {
           packages = {
-            default = poor-tools-web;
-            poor-tools-web = poor-tools-web;
+            default = poor-installer-web;
+            poor-installer-web = poor-installer-web;
             docker = dockerImage;
           };
 
           apps.default = {
             type = "app";
-            program = "${self'.packages.poor-tools-web}/bin/poor-tools-web";
+            program = "${self'.packages.poor-installer-web}/bin/poor-installer-web";
           };
 
           devShells.default = pkgs.mkShell {
@@ -282,6 +257,7 @@
                 python313Packages.pytest-asyncio
                 python313Packages.httpx
                 python313Packages.mypy
+                python313Packages.types-requests
                 ruff
                 uv
                 hadolint
@@ -298,11 +274,11 @@
               echo "FastAPI available with uvicorn"
               echo ""
               echo "Commands:"
-              echo "  python main.py                           # Start server"
-              echo "  uvicorn main:app --reload --port 7667    # Development server"
+              echo "  python -m poor_installer_web.app         # Start server"
+              echo "  uvicorn poor_installer_web.app:app --reload --port 7667    # Development server"
               echo "  uv run pytest tests/ -v                  # Run tests"
-              echo "  ruff check . && ruff format .             # Format code"
-              echo "  mypy main.py                             # Type check"
+              echo "  ruff check . && ruff format .            # Format code"
+              echo "  mypy poor_installer_web/app.py           # Type check"
               echo "  nix build '.#docker'                     # Build Docker image"
               echo ""
               echo "Pre-commit hooks are installed and will run on commit."

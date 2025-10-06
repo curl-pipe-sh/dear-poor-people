@@ -238,7 +238,7 @@ join_location() {
           :
           ;;
         *)
-          base_dir="$base_dir/"
+          base_dir="${base_dir}/"
           ;;
       esac
 
@@ -262,21 +262,21 @@ fetch_https_stream() {
   path=$6
 
   # Host header must be the original hostname; include port only if non-default
-  host_hdr=$sni_host
+  host_hdr=${sni_host}
   if [ "$port" -ne 443 ]
   then
-    host_hdr="$sni_host:$port"
+    host_hdr="${sni_host}:${port}"
   fi
 
-  req="GET $path HTTP/1.1\r\nHost: $host_hdr\r\nUser-Agent: curl-ossl\r\nAccept: */*\r\nConnection: close\r\n\r\n"
-  connect_target="$(bracket_if_ipv6 "$connect_host"):$port"
+  req="GET ${path} HTTP/1.1\r\nHost: ${host_hdr}\r\nUser-Agent: curl-ossl\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+  connect_target="$(bracket_if_ipv6 "$connect_host"):${port}"
 
   for args in \
-    "-quiet -ign_eof -connect $connect_target -tls1_3 -servername $sni_host" \
-    "-quiet -ign_eof -connect $connect_target -tls1_2 -servername $sni_host" \
-    "-quiet -ign_eof -connect $connect_target -tls1_2"
+    "-quiet -ign_eof -connect ${connect_target} -tls1_3 -servername ${sni_host}" \
+    "-quiet -ign_eof -connect ${connect_target} -tls1_2 -servername ${sni_host}" \
+    "-quiet -ign_eof -connect ${connect_target} -tls1_2"
   do
-    logv "openssl s_client $args"
+    logv "openssl s_client ${args}"
     errf=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-err")
 
     # Run; ignore s_client exit — validate by captured HTTP headers instead

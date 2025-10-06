@@ -7,7 +7,7 @@ They're small, ugly, and barely work — but sometimes that's enough.
 
 ## Web Installer
 
-The web installer serves scripts via HTTP with optional templating support.
+The web installer serves scripts via HTTP with optional templating support for easy deployment and installation.
 
 ### Quick Start
 
@@ -20,14 +20,25 @@ nix run github:pschmitt/poor-tools#poor-tools-web
 
 # Development
 uv sync --all-extras --dev
-python main.py
+python -m poor_installer_web.app
 ```
 
-### Usage
+### Available Tools
+
+- **poornmap** - Simple nmap alternative for basic port scanning
+- **poorcurl** - curl-like wrapper using wget
+- **poorcurl-openssl** - HTTPS client using openssl s_client
+- **poorcolumn** - Minimal column(1) clone with basic -s/-t support
+- **poorsocat** - Basic socat functionality
+
+### Usage Examples
 
 ```bash
 # Get info about available tools and installers
 curl -sSL http://localhost:7667/
+
+# List all available tools
+curl -sSL http://localhost:7667/list
 
 # Install all tools
 curl -sSL http://localhost:7667/install | sh
@@ -53,7 +64,25 @@ curl -sSL http://localhost:7667/socat/install | sh         # poorsocat
 curl -sSL "http://localhost:7667/curl/install?no_templating=1" | sh
 ```
 
-## Installing the bundle
+### CLI Options
+
+```bash
+python -m poor_installer_web.app --help
+# or
+poor-tools-web --help
+
+Options:
+  --bind-host BIND_HOST     Host to bind to (default: 127.0.0.1)
+  --bind-port BIND_PORT     Port to bind to (default: 7667)
+  --script-dir SCRIPT_DIR   Directory containing scripts to serve
+```
+
+### Environment Variables
+
+- `BIND_HOST` - Host to bind to (default: 127.0.0.1)
+- `BIND_PORT` - Port to bind to (default: 7667)
+
+## Local Installation
 
 Run `./poor-installer --dest /some/bin` to copy every tool into your own bin
 directory. Useful flags:

@@ -26,18 +26,18 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 ```
 .
-├── main.py              # FastAPI application
-├── lib/                 # Reusable shell functions
-│   ├── echo.sh         # Echo utilities
-│   └── utils.sh        # Common utilities
-├── templates/           # Template files for dynamic generation
+├── poor_installer_web.py  # FastAPI application
+├── lib/                   # Reusable shell functions
+│   ├── echo.sh           # Echo utilities
+│   └── utils.sh          # Common utilities
+├── templates/             # Template files for dynamic generation
 │   └── tool-installer.sh # Tool-specific installer template
-├── tests/               # Test files
-│   └── test_main.py    # Main test suite
-├── pyproject.toml      # Project config
-├── Dockerfile          # Container build
-├── flake.nix           # Nix development/deployment
-└── .github/workflows/  # CI/CD
+├── tests/                 # Test files
+│   └── test_main.py      # Test suite
+├── pyproject.toml        # Project config
+├── Dockerfile            # Container build
+├── flake.nix             # Nix development/deployment
+└── .github/workflows/    # CI/CD
 ```
 
 ### Development Workflow
@@ -47,7 +47,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 3. **Testing**: Run `uv run pytest tests/ -v` before committing
 4. **Linting**: Run `uv run ruff check .` and `uv run ruff format .`
 5. **Import sorting**: Run `uv run ruff check --select I .` to check import order
-6. **Type checking**: Run `uv run mypy main.py`
+6. **Type checking**: Run `uv run mypy poor_installer_web.py`
 7. **Docker linting**: Run `hadolint Dockerfile` for Docker best practices
 8. **Pre-commit**: Use Nix dev shell for automatic native pre-commit hook setup
 9. **CI**: All checks run independently - workflow fails only if any check fails
@@ -125,6 +125,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
   case "$var" in one) echo "xxxx" ;; two) echo "yyyy" ;; esac
   ```
 - **Function exits**: Use `return` in functions, `exit` only from main script flow
+- **Avoid exit in functions**: Never use `exit` within functions - use `return` instead
 - **DRY principle**: Extract common patterns into functions to avoid repetition
   ```bash
   # Good (POSIX-compatible):

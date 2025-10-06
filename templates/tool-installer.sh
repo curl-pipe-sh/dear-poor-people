@@ -128,7 +128,7 @@ fi
 # Clear destination if requested
 if [ "$CLEAR" = 1 ] && [ "$UNINSTALL" = 0 ]
 then
-  echo_info "Clearing destination directory: $DEST"
+  echo_info "Clearing destination directory: ${DEST}"
   rm -rf "$DEST"
   mkdir -p "$DEST"
 fi
@@ -161,7 +161,7 @@ elif has_command wget
 then
   DOWNLOADER="wget"
 else
-  echo_error "Neither curl nor wget found. Cannot download $TOOL_NAME."
+  echo_error "Neither curl nor wget found. Cannot download ${TOOL_NAME}."
   exit 1
 fi
 
@@ -171,13 +171,14 @@ then
   echo_info "Installing all poor-tools"
   echo_info "This will download and install all available tools from the server"
 
+  # Use the tools list that gets replaced by the server
   TOOLS="nmap curl curl-openssl column socat"
   BASE_URL="${SCRIPT_URL%/all}"
 
   for tool in $TOOLS
   do
-    echo_info "Installing $tool..."
-    tool_url="$BASE_URL/$tool"
+    echo_info "Installing ${tool}..."
+    tool_url="${BASE_URL}/${tool}"
 
     # Determine tool filename
     if [ "$EMULATE" = 1 ]
@@ -186,17 +187,17 @@ then
     else
       case "$tool" in
         poor*) tool_bin="$tool" ;;
-        *) tool_bin="poor$tool" ;;
+        *) tool_bin="poor${tool}" ;;
       esac
     fi
 
-    tool_target="$DEST/$tool_bin"
+    tool_target="${DEST}/${tool_bin}"
 
     if download_file "$tool_url" "$tool_target" "$DOWNLOADER"
     then
-      echo_success "✅ Installed $tool_bin"
+      echo_success "✅ Installed ${tool_bin}"
     else
-      echo_error "❌ Failed to download $tool"
+      echo_error "❌ Failed to download ${tool}"
     fi
   done
 
@@ -206,13 +207,13 @@ fi
 
 if [ "$UNINSTALL" = 1 ]
 then
-  echo_info "Uninstalling $TOOL_NAME from $TARGET_FILE"
+  echo_info "Uninstalling ${TOOL_NAME} from ${TARGET_FILE}"
   if [ -f "$TARGET_FILE" ]
   then
     rm -f "$TARGET_FILE"
-    echo_success "Removed $TARGET_FILE"
+    echo_success "Removed ${TARGET_FILE}"
   else
-    echo_warning "$TARGET_FILE not found"
+    echo_warning "${TARGET_FILE} not found"
   fi
 
   # Try to remove destination if --clear was specified and it's empty
@@ -220,19 +221,19 @@ then
   then
     if rmdir "$DEST" 2>/dev/null
     then
-      echo_info "Removed empty directory: $DEST"
+      echo_info "Removed empty directory: ${DEST}"
     fi
   fi
 else
-  echo_info "Installing $TOOL_NAME to $TARGET_FILE"
-  echo_info "Downloading from: $SCRIPT_URL"
+  echo_info "Installing ${TOOL_NAME} to ${TARGET_FILE}"
+  echo_info "Downloading from: ${SCRIPT_URL}"
 
   # Download the script
   if download_file "$SCRIPT_URL" "$TARGET_FILE" "$DOWNLOADER"
   then
-    echo_success "Successfully installed $BIN_NAME to $TARGET_FILE"
+    echo_success "Successfully installed ${BIN_NAME} to ${TARGET_FILE}"
   else
-    echo_error "Failed to download $TOOL_NAME"
+    echo_error "Failed to download ${TOOL_NAME}"
     exit 1
   fi
 fi

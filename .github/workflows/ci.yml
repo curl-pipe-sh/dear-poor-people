@@ -41,7 +41,7 @@ jobs:
     - name: Type check with mypy
       id: typecheck
       continue-on-error: true
-      run: uv run mypy main.py
+      run: uv run mypy poor_installer_web.py
 
     - name: Lint shell scripts with shellcheck
       id: shellcheck
