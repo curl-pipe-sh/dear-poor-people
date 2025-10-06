@@ -116,7 +116,60 @@ EOF
 
 # Detect the best available netcat tool
 detect_netcat_tool() {
-  # Try tools from most powerful to least convenient for us
+  # If PROG is set, try to use that tool specifically
+  if [ -n "$PROG" ]; then
+    case "$PROG" in
+      "ncat")
+        if command -v ncat >/dev/null 2>&1; then
+          NETCAT_TOOL="ncat"
+          NETCAT_ARGS="-z -v"
+          return 0
+        fi
+        ;;
+      "nc")
+        if command -v nc >/dev/null 2>&1; then
+          # Test if it supports -z flag
+          if nc -z 2>&1 | grep -q "usage:"; then
+            NETCAT_TOOL="nc"
+            NETCAT_ARGS="-z -v"
+          else
+            NETCAT_TOOL="nc"
+            NETCAT_ARGS="-v"
+          fi
+          return 0
+        fi
+        ;;
+      "netcat")
+        if command -v netcat >/dev/null 2>&1; then
+          NETCAT_TOOL="netcat"
+          NETCAT_ARGS="-z -v"
+          return 0
+        fi
+        ;;
+      "busybox")
+        if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"; then
+          NETCAT_TOOL="busybox nc"
+          NETCAT_ARGS="-v"
+          return 0
+        fi
+        ;;
+      "bash")
+        if command -v bash >/dev/null 2>&1; then
+          NETCAT_TOOL="bash"
+          NETCAT_ARGS=""
+          return 0
+        fi
+        ;;
+      *)
+        echo_error "Unknown tool specified: $PROG"
+        return 1
+        ;;
+    esac
+    echo_error "Specified tool '$PROG' not available"
+    return 1
+  fi
+  
+  # Auto-detection: Try tools from most powerful to least convenient for us
   # ncat (from nmap) - most powerful
   if command -v ncat >/dev/null 2>&1; then
     NETCAT_TOOL="ncat"
@@ -363,6 +416,14 @@ while [ $# -gt 0 ]; do
     --json)
       JSON_OUTPUT=1
       shift
+      ;;
+    --prog)
+      if [ -z "$2" ]; then
+        echo_error "Option --prog requires an argument"
+        exit 1
+      fi
+      PROG="$2"
+      shift 2
       ;;
     -*)
       echo_error "Unknown option: $1"
