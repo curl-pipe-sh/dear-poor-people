@@ -186,7 +186,7 @@ def process_includes(content: str, base_dir: Path) -> str:
         source_match = re.match(r"^\s*source\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
         # Match POSIX pattern: . lib/echo.sh # <TEMPLATE>
         dot_match = re.match(r"^\s*\.\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
-        
+
         if include_match:
             include_path = include_match.group(1).strip()
             include_file = base_dir / include_path
