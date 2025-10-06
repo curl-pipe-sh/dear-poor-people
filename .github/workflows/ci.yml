@@ -16,7 +16,7 @@ jobs:
     - name: Lint with Ruff
       uses: astral-sh/ruff-action@v1
       with:
-        src: "./poor_installer_web"
+        src: "."
         args: "check --output-format=github"
 
     - name: Check formatting with Ruff
