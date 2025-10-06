@@ -330,6 +330,12 @@ def process_includes(content: str, base_dir: Path) -> str:
     return "\n".join(result_lines)
 
 
+def apply_common_placeholders(content: str, server_url: str) -> str:
+    """Apply standard placeholder replacements for scripts."""
+
+    return content.replace("<BASE_URL>", server_url)
+
+
 def get_file_content(filename: str, no_templating: bool = False) -> str:
     """Get the content of a file, optionally processing includes."""
     file_path = SCRIPT_DIR / filename
@@ -529,22 +535,34 @@ curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
     return Response(content=tools_list, media_type="text/plain; charset=utf-8")
 
 
-@app.get("/installer", response_class=PlainTextResponse)
-async def get_installer(no_templating: str | None = None) -> Response:
-    """Serve the poor-installer script."""
+async def _serve_installer(
+    request: Request, no_templating: str | None = None
+) -> Response:
+    """Common installer handler."""
     content = get_file_content("poor-installer", no_templating == "1")
+
+    if no_templating != "1":
+        server_url = get_server_url(request)
+        content = apply_common_placeholders(content, server_url)
+
     return PlainTextResponse(
         content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
     )
 
 
+@app.get("/installer", response_class=PlainTextResponse)
+async def get_installer(request: Request, no_templating: str | None = None) -> Response:
+    """Serve the poor-installer script."""
+    return await _serve_installer(request, no_templating)
+
+
 # Catch-all for /install* paths
 @app.get("/install{path:path}", response_class=PlainTextResponse)
 async def get_installer_with_path(
-    path: str, no_templating: str | None = None
+    request: Request, path: str, no_templating: str | None = None
 ) -> Response:
     """Serve the poor-installer script for any /install* path."""
-    return await get_installer(no_templating)
+    return await _serve_installer(request, no_templating)
 
 
 @app.get("/health")
@@ -574,7 +592,9 @@ async def get_tool_installer(
 
 # Dynamic tool script handler
 @app.get("/{tool_name}", response_class=PlainTextResponse)
-async def get_tool_script(tool_name: str, no_templating: str | None = None) -> Response:
+async def get_tool_script(
+    tool_name: str, request: Request, no_templating: str | None = None
+) -> Response:
     """Serve a tool script dynamically."""
     # Handle special cases first
     if tool_name in {"health", "list", "install", "installer"}:
@@ -587,6 +607,10 @@ async def get_tool_script(tool_name: str, no_templating: str | None = None) -> R
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
     content = get_file_content(canonical_name, no_templating == "1")
+
+    if no_templating != "1":
+        server_url = get_server_url(request)
+        content = apply_common_placeholders(content, server_url)
     return PlainTextResponse(
         content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
     )

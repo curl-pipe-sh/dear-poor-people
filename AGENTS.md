@@ -21,6 +21,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Dependencies**: Manage with `uv`, pin versions in pyproject.toml
 - **Docker**: Use `hadolint` for Dockerfile linting
 - **Shell scripts**: Use `shellcheck` for shell script linting
+  - All `poor*` scripts in this repository are POSIX `sh`
 
 ### File Organization
 
@@ -64,6 +65,8 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 - **Templating**: Support `# INCLUDE_FILE: path/to/file.sh` directives
 - **Library functions**: Place reusable functions in `lib/`
+- **Library usage**: Source shared helpers with `. lib/<file>.sh # <TEMPLATE>` so the
+  web installer can inline them automatically
 - **Style**: Follow existing poor-tools style (POSIX shell where possible)
 - **Comments**: Use meaningful comments for complex logic
 - **Variable naming**: Use UPPERCASE for global variables, lowercase for local variables
