@@ -4,8 +4,9 @@
 
 set -eu
 
-# INCLUDE_FILE: lib/utils.sh
-# INCLUDE_FILE: lib/echo.sh
+# Source utility libraries - these lines get replaced during templating
+. lib/utils.sh # <TEMPLATE>
+. lib/echo.sh # <TEMPLATE>
 
 TOOL_NAME="<TOOL_NAME>"
 SCRIPT_URL="<SERVER_URL>/<TOOL_NAME>"

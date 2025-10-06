@@ -1,5 +1,5 @@
 # vim: set ft=sh:
-# shellcheck shell=bash
+# shellcheck shell=sh
 
 CRON="${CRON:-}"
 DEBUG="${DEBUG:-}"
@@ -10,93 +10,86 @@ ECHO_SYSLOG="${ECHO_SYSLOG:-}"
 QUIET="${QUIET:-}"
 
 echo_fancy() {
-  local prefix="$1"
-  local color="$2"
+  prefix="$1"
+  color="$2"
   shift 2
 
-  local line
   line="$prefix $*"
+  line_fmt="$line"
 
-  local line_fmt="$line"
-
-  if [[ -z "$NO_COLOR" && -z "$CRON" ]]
+  if [ -z "$NO_COLOR" ] && [ -z "$CRON" ]
   then
-    line_fmt="${color}${prefix}\e[0m $*"
+    line_fmt="${color}${prefix}\033[0m $*"
   fi
 
-  echo -e "$line_fmt" >&2
+  printf '%b\n' "$line_fmt" >&2
 
   # Optionally log to syslog
-  [[ -z "$ECHO_SYSLOG" ]] && return 0
-  logger -t "$SCRIPT_NAME" "$(echo -e "$line_fmt")"
+  [ -z "$ECHO_SYSLOG" ] && return 0
+  logger -t "$SCRIPT_NAME" "$(printf '%b\n' "$line_fmt")"
 }
 
 echo_info() {
   # Respect QUIET by suppressing info-level logs
-  if [[ -n "$QUIET" ]]
+  if [ -n "$QUIET" ]
   then
     return 0
   fi
-  local prefix="INF"
-  local color='\e[1m\e[34m'
+  prefix="INF"
+  color='\033[1m\033[34m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
-# shellcheck disable=SC2317
 echo_success() {
-  local prefix="OK"
-  local color='\e[1m\e[32m'
+  prefix="OK"
+  color='\033[1m\033[32m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
-# shellcheck disable=SC2317
 echo_warning() {
-  [[ -n "$NO_WARNING" ]] && return 0
-  local prefix="WRN"
-  local color='\e[1m\e[33m'
+  [ -n "$NO_WARNING" ] && return 0
+  prefix="WRN"
+  color='\033[1m\033[33m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
-# shellcheck disable=SC2317
 echo_error() {
-  local prefix="ERR"
-  local color='\e[1m\e[31m'
+  prefix="ERR"
+  color='\033[1m\033[31m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
-# shellcheck disable=SC2317
 echo_debug() {
-  [[ -z "${DEBUG}${VERBOSE}" ]] && return 0
-  local prefix="DBG"
-  local color='\e[1m\e[35m'
+  [ -z "${DEBUG}${VERBOSE}" ] && return 0
+  prefix="DBG"
+  color='\033[1m\033[35m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
-# shellcheck disable=SC2317
 echo_dryrun() {
-  local prefix="DRY"
-  local color='\e[1m\e[35m'
+  prefix="DRY"
+  color='\033[1m\033[35m'
 
   echo_fancy "$prefix" "$color" "$*"
 }
 
 echo_confirm() {
-  if [[ -n "$NOCONFIRM" ]]
+  if [ -n "$NOCONFIRM" ]
   then
     return 0
   fi
 
-  local msg_pre=$'\e[31mASK\e[0m'
-  local msg="${1:-"Continue?"}"
-  local yn
-  read -r -n1 -p "${msg_pre} ${msg} [y/N] " yn
-  [[ "$yn" =~ ^[yY] ]]
-  local rc="$?"
-  echo # append a NL
-  return "$rc"
+  msg_pre='\033[31mASK\033[0m'
+  msg="${1:-"Continue?"}"
+  printf '%b %s [y/N] ' "$msg_pre" "$msg"
+  read -r yn
+  case "$yn" in
+    [yY]*) return 0 ;;
+    *) return 1 ;;
+  esac
 }

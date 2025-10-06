@@ -171,16 +171,42 @@ def generate_tool_installer(
 def process_includes(content: str, base_dir: Path) -> str:
     """Process INCLUDE_FILE directives in the content.
 
-    Replaces lines like '# INCLUDE_FILE: lib/echo.sh' with the actual file content.
+    Replaces lines like:
+    - '# INCLUDE_FILE: lib/echo.sh' with the actual file content (old format)
+    - 'source lib/echo.sh # <TEMPLATE>' with the actual file content (new format)
+    - '. lib/echo.sh # <TEMPLATE>' with the actual file content (POSIX format)
     """
     lines = content.split("\n")
     processed_lines = []
 
     for line in lines:
-        # Match pattern like: # INCLUDE_FILE: lib/echo.sh
+        # Match old pattern: # INCLUDE_FILE: lib/echo.sh
         include_match = re.match(r"^\s*#\s*INCLUDE_FILE:\s*(.+?)\s*$", line)
+        # Match new pattern: source lib/echo.sh # <TEMPLATE>
+        source_match = re.match(r"^\s*source\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
+        # Match POSIX pattern: . lib/echo.sh # <TEMPLATE>
+        dot_match = re.match(r"^\s*\.\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
+        
         if include_match:
             include_path = include_match.group(1).strip()
+            include_file = base_dir / include_path
+
+            if include_file.exists():
+                try:
+                    include_content = include_file.read_text(encoding="utf-8")
+                    # Add a comment showing what was included
+                    processed_lines.append(f"# BEGIN INCLUDE: {include_path}")
+                    processed_lines.append(include_content.rstrip())
+                    processed_lines.append(f"# END INCLUDE: {include_path}")
+                except Exception:
+                    # If we can't read the file, keep the original line
+                    processed_lines.append(line)
+            else:
+                # If file doesn't exist, keep the original line
+                processed_lines.append(line)
+        elif source_match or dot_match:
+            match = source_match or dot_match
+            include_path = match.group(1).strip()
             include_file = base_dir / include_path
 
             if include_file.exists():

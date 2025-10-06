@@ -1,77 +1,8 @@
-#!/usr/bin/env sh
-# INCLUDE_FILE: lib/echo.sh
+#!/bin/sh
 
-# Echo utilities (embedded for standalone use - in web installer, above INCLUDE_FILE will replace this)
-CRON="${CRON:-}"
-DEBUG="${DEBUG:-}"
-NO_COLOR="${NO_COLOR:-}"
-NO_WARNING="${NO_WARNING:-}"
-VERBOSE="${VERBOSE:-}"
-ECHO_SYSLOG="${ECHO_SYSLOG:-}"
-QUIET="${QUIET:-}"
-
-echo_fancy() {
-  prefix="$1"
-  color="$2"
-  shift 2
-
-  line="$prefix $*"
-  line_fmt="$line"
-
-  if [ -z "$NO_COLOR" ] && [ -z "$CRON" ]
-  then
-    line_fmt="${color}${prefix}\033[0m $*"
-  fi
-
-  # Use printf with \n for POSIX compatibility, but ensure colors work
-  printf '%b\n' "$line_fmt" >&2
-
-  # Optionally log to syslog
-  [ -z "$ECHO_SYSLOG" ] && return 0
-  logger -t "$SCRIPT_NAME" "$(printf '%b\n' "$line_fmt")"
-}
-
-echo_info() {
-  # Respect QUIET by suppressing info-level logs
-  if [ -n "$QUIET" ]
-  then
-    return 0
-  fi
-  prefix="INF"
-  color='\033[1m\033[34m'
-
-  echo_fancy "$prefix" "$color" "$*"
-}
-
-echo_success() {
-  prefix="OK"
-  color='\033[1m\033[32m'
-
-  echo_fancy "$prefix" "$color" "$*"
-}
-
-echo_warning() {
-  [ -n "$NO_WARNING" ] && return 0
-  prefix="WRN"
-  color='\033[1m\033[33m'
-
-  echo_fancy "$prefix" "$color" "$*"
-}
-
-echo_error() {
-  prefix="ERR"
-  color='\033[1m\033[31m'
-
-  echo_fancy "$prefix" "$color" "$*"
-}
-
-echo_debug() {
-  [ -z "${DEBUG}${VERBOSE}" ] && return 0
-  prefix="DBG"
-  color='\033[1m\033[35m'
-
-  echo_fancy "$prefix" "$color" "$*"
-}
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
 
 # Default values
 TIMEOUT=3
@@ -79,6 +10,7 @@ PING_SCAN=1
 JSON_OUTPUT=0
 PORTS=""
 HOST=""
+# shellcheck disable=SC2034  # Used by echo.sh functions  
 SCRIPT_NAME="poornmap"
 PROG="${PROG:-}"  # Environment variable for tool override
 
@@ -119,19 +51,23 @@ EOF
 # Detect the best available netcat tool
 detect_netcat_tool() {
   # If PROG is set, try to use that tool specifically
-  if [ -n "$PROG" ]; then
+  if [ -n "$PROG" ]
+  then
     case "$PROG" in
       "ncat")
-        if command -v ncat >/dev/null 2>&1; then
+        if command -v ncat >/dev/null 2>&1
+        then
           NETCAT_TOOL="ncat"
           NETCAT_ARGS="-z -v"
           return 0
         fi
         ;;
       "nc")
-        if command -v nc >/dev/null 2>&1; then
+        if command -v nc >/dev/null 2>&1
+        then
           # Test if it supports -z flag
-          if nc -z 2>&1 | grep -q "usage:"; then
+          if nc -z 2>&1 | grep -q "usage:"
+          then
             NETCAT_TOOL="nc"
             NETCAT_ARGS="-z -v"
           else
@@ -142,47 +78,53 @@ detect_netcat_tool() {
         fi
         ;;
       "netcat")
-        if command -v netcat >/dev/null 2>&1; then
+        if command -v netcat >/dev/null 2>&1
+        then
           NETCAT_TOOL="netcat"
           NETCAT_ARGS="-z -v"
           return 0
         fi
         ;;
       "busybox")
-        if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"; then
+        if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"
+        then
           NETCAT_TOOL="busybox nc"
           NETCAT_ARGS="-v"
           return 0
         fi
         ;;
       "bash")
-        if command -v bash >/dev/null 2>&1; then
+        if command -v bash >/dev/null 2>&1
+        then
           NETCAT_TOOL="bash"
           NETCAT_ARGS=""
           return 0
         fi
         ;;
       *)
-        echo_error "Unknown tool specified: $PROG"
+        echo_error "Unknown tool specified: ${PROG}"
         return 1
         ;;
     esac
-    echo_error "Specified tool '$PROG' not available"
+    echo_error "Specified tool '${PROG}' not available"
     return 1
   fi
 
   # Auto-detection: Try tools from most powerful to least convenient for us
   # ncat (from nmap) - most powerful
-  if command -v ncat >/dev/null 2>&1; then
+  if command -v ncat >/dev/null 2>&1
+  then
     NETCAT_TOOL="ncat"
     NETCAT_ARGS="-z -v"
     return 0
   fi
 
   # OpenBSD netcat - good feature set
-  if command -v nc >/dev/null 2>&1; then
+  if command -v nc >/dev/null 2>&1
+  then
     # Test if it supports -z flag (OpenBSD/traditional nc)
-    if nc -z 2>&1 | grep -q "usage:"; then
+    if nc -z 2>&1 | grep -q "usage:"
+    then
       NETCAT_TOOL="nc"
       NETCAT_ARGS="-z -v"
       return 0
@@ -190,28 +132,32 @@ detect_netcat_tool() {
   fi
 
   # GNU netcat - different syntax
-  if command -v netcat >/dev/null 2>&1; then
+  if command -v netcat >/dev/null 2>&1
+  then
     NETCAT_TOOL="netcat"
     NETCAT_ARGS="-z -v"
     return 0
   fi
 
   # Busybox netcat - minimal but widely available
-  if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"; then
+  if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"
+  then
     NETCAT_TOOL="busybox nc"
     NETCAT_ARGS="-v"
     return 0
   fi
 
   # Regular nc without -z support (fallback)
-  if command -v nc >/dev/null 2>&1; then
+  if command -v nc >/dev/null 2>&1
+  then
     NETCAT_TOOL="nc"
     NETCAT_ARGS="-v"
     return 0
   fi
 
   # bash /dev/tcp fallback
-  if command -v bash >/dev/null 2>&1; then
+  if command -v bash >/dev/null 2>&1
+  then
     NETCAT_TOOL="bash"
     NETCAT_ARGS=""
     return 0
@@ -228,12 +174,15 @@ test_port() {
 
   case "$NETCAT_TOOL" in
     "ncat"|"nc"|"netcat")
-      if echo "$NETCAT_ARGS" | grep -q -- "-z"; then
+      if echo "$NETCAT_ARGS" | grep -q -- "-z"
+      then
         # Tool supports -z flag for port scanning
-        timeout "$timeout_val" $NETCAT_TOOL $NETCAT_ARGS -w1 "$host" "$port" >/dev/null 2>&1
+        # shellcheck disable=SC2086  # NETCAT_ARGS contains multiple arguments
+        timeout "$timeout_val" ${NETCAT_TOOL} ${NETCAT_ARGS} -w1 "$host" "$port" >/dev/null 2>&1
       else
         # Tool doesn't support -z, use connection attempt
-        timeout "$timeout_val" $NETCAT_TOOL $NETCAT_ARGS -w1 "$host" "$port" </dev/null >/dev/null 2>&1
+        # shellcheck disable=SC2086  # NETCAT_ARGS contains multiple arguments
+        timeout "$timeout_val" ${NETCAT_TOOL} ${NETCAT_ARGS} -w1 "$host" "$port" </dev/null >/dev/null 2>&1
       fi
       ;;
     "busybox nc")
@@ -242,7 +191,7 @@ test_port() {
       ;;
     "bash")
       # Use bash's /dev/tcp
-      timeout "$timeout_val" bash -c "exec 3<>/dev/tcp/$host/$port && exec 3<&- && exec 3>&-" >/dev/null 2>&1
+      timeout "$timeout_val" bash -c "exec 3<>/dev/tcp/${host}/${port} && exec 3<&- && exec 3>&-" >/dev/null 2>&1
       ;;
     *)
       return 1
@@ -264,7 +213,8 @@ parse_ports() {
   ports_list=""
 
   # Handle comma-separated ports
-  for port_range in $(echo "$port_spec" | tr ',' ' '); do
+  for port_range in $(echo "$port_spec" | tr ',' ' ')
+  do
     case "$port_range" in
       *-*)
         # Handle port ranges like 1-1000
@@ -272,36 +222,41 @@ parse_ports() {
         end_port=$(echo "$port_range" | cut -d'-' -f2)
 
         # Validate that both are integers
-        if ! is_integer "$start_port" || ! is_integer "$end_port"; then
-          echo_error "Invalid port range: $port_range (ports must be integers)"
+        if ! is_integer "$start_port" || ! is_integer "$end_port"
+        then
+          echo_error "Invalid port range: ${port_range} (ports must be integers)"
           return 1
         fi
 
         # Validate range
-        if [ "$start_port" -gt "$end_port" ] || [ "$start_port" -lt 1 ] || [ "$end_port" -gt 65535 ]; then
-          echo_error "Invalid port range: $port_range (must be 1-65535)"
+        if [ "$start_port" -gt "$end_port" ] || [ "$start_port" -lt 1 ] || [ "$end_port" -gt 65535 ]
+        then
+          echo_error "Invalid port range: ${port_range} (must be 1-65535)"
           return 1
         fi
 
         # Generate port list
         i="$start_port"
-        while [ "$i" -le "$end_port" ]; do
-          ports_list="$ports_list $i"
+        while [ "$i" -le "$end_port" ]
+        do
+          ports_list="${ports_list} ${i}"
           i=$((i + 1))
         done
         ;;
       *)
         # Single port
-        if ! is_integer "$port_range"; then
-          echo_error "Invalid port: $port_range (must be an integer)"
+        if ! is_integer "$port_range"
+        then
+          echo_error "Invalid port: ${port_range} (must be an integer)"
           return 1
         fi
 
-        if [ "$port_range" -lt 1 ] || [ "$port_range" -gt 65535 ]; then
-          echo_error "Invalid port: $port_range (must be 1-65535)"
+        if [ "$port_range" -lt 1 ] || [ "$port_range" -gt 65535 ]
+        then
+          echo_error "Invalid port: ${port_range} (must be 1-65535)"
           return 1
         fi
-        ports_list="$ports_list $port_range"
+        ports_list="${ports_list} ${port_range}"
         ;;
     esac
   done
@@ -321,23 +276,24 @@ json_add_port() {
   port="$1"
   state="$2"
 
-  if [ -n "$JSON_RESULTS" ]; then
-    JSON_RESULTS="$JSON_RESULTS,"
+  if [ -n "$JSON_RESULTS" ]
+  then
+    JSON_RESULTS="${JSON_RESULTS},"
   fi
 
-  JSON_RESULTS="$JSON_RESULTS{\"port\":$port,\"state\":\"$state\"}"
+  JSON_RESULTS="${JSON_RESULTS}{\"port\":${port},\"state\":\"${state}\"}"
 }
 
 # Output final JSON
 json_output() {
   cat << EOF
 {
-  "host": "$JSON_HOST",
-  "scan_time": "$JSON_SCAN_TIME",
+  "host": "${JSON_HOST}",
+  "scan_time": "${JSON_SCAN_TIME}",
   "scanner": "poornmap",
-  "tool_used": "$NETCAT_TOOL",
+  "tool_used": "${NETCAT_TOOL}",
   "ping_scan_disabled": $([ "$PING_SCAN" = "0" ] && echo "true" || echo "false"),
-  "ports": [$JSON_RESULTS]
+  "ports": [${JSON_RESULTS}]
 }
 EOF
 }
@@ -347,41 +303,47 @@ scan_ports() {
   host="$1"
   ports="$2"
 
-  if [ "$JSON_OUTPUT" = "1" ]; then
+  if [ "$JSON_OUTPUT" = "1" ]
+  then
     json_init "$host"
   else
-    echo_info "Starting port scan on $host"
-    echo_info "Using tool: $NETCAT_TOOL"
+    echo_info "Starting port scan on ${host}"
+    echo_info "Using tool: ${NETCAT_TOOL}"
   fi
 
   open_ports=0
   total_ports=0
 
-  for port in $ports; do
+  for port in ${ports}
+  do
     total_ports=$((total_ports + 1))
 
-    if test_port "$host" "$port" "$TIMEOUT"; then
+    if test_port "$host" "$port" "$TIMEOUT"
+    then
       # Port is open
       open_ports=$((open_ports + 1))
-      if [ "$JSON_OUTPUT" = "1" ]; then
+      if [ "$JSON_OUTPUT" = "1" ]
+      then
         json_add_port "$port" "open"
       else
-        echo_success "$host:$port OPEN"
+        echo_success "${host}:${port} OPEN"
       fi
     else
       # Port is closed/filtered
-      if [ "$JSON_OUTPUT" = "1" ]; then
+      if [ "$JSON_OUTPUT" = "1" ]
+      then
         json_add_port "$port" "closed"
       else
-        echo_error "$host:$port CLOSED"
+        echo_error "${host}:${port} CLOSED"
       fi
     fi
   done
 
-  if [ "$JSON_OUTPUT" = "1" ]; then
+  if [ "$JSON_OUTPUT" = "1" ]
+  then
     json_output
   else
-    echo_info "Scan complete: $open_ports/$total_ports ports open"
+    echo_info "Scan complete: ${open_ports}/${total_ports} ports open"
   fi
 
   # Return non-zero if no ports are open
@@ -389,14 +351,16 @@ scan_ports() {
 }
 
 # Parse command line arguments
-while [ $# -gt 0 ]; do
+while [ $# -gt 0 ]
+do
   case "$1" in
     -h|--help)
       usage
       exit 0
       ;;
     -p)
-      if [ -z "$2" ]; then
+      if [ -z "$2" ]
+      then
         echo_error "Option -p requires an argument"
         exit 1
       fi
@@ -408,7 +372,8 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --timeout)
-      if [ -z "$2" ]; then
+      if [ -z "$2" ]
+      then
         echo_error "Option --timeout requires an argument"
         exit 1
       fi
@@ -420,7 +385,8 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --prog)
-      if [ -z "$2" ]; then
+      if [ -z "$2" ]
+      then
         echo_error "Option --prog requires an argument"
         exit 1
       fi
@@ -433,7 +399,8 @@ while [ $# -gt 0 ]; do
       exit 1
       ;;
     *)
-      if [ -z "$HOST" ]; then
+      if [ -z "$HOST" ]
+      then
         HOST="$1"
       else
         echo_error "Multiple hosts not supported"
@@ -445,45 +412,53 @@ while [ $# -gt 0 ]; do
 done
 
 # Validate arguments
-if [ -z "$HOST" ]; then
+if [ -z "$HOST" ]
+then
   echo_error "No host specified"
   usage >&2
   exit 1
 fi
 
-if [ -z "$PORTS" ]; then
+if [ -z "$PORTS" ]
+then
   echo_error "No ports specified (use -p option)"
   usage >&2
   exit 1
 fi
 
 # Detect netcat tool
-if ! detect_netcat_tool; then
+if ! detect_netcat_tool
+then
   echo_error "No suitable network tool found (tried: ncat, nc, netcat, busybox nc, bash)"
   exit 1
 fi
 
 # Parse ports
-parsed_ports=$(parse_ports "$PORTS")
-if [ $? -ne 0 ]; then
+if ! parsed_ports=$(parse_ports "$PORTS")
+then
   exit 1
 fi
 
 # Optional ping check (if not disabled with -Pn)
-if [ "$PING_SCAN" = "1" ]; then
-  if command -v ping >/dev/null 2>&1; then
-    if ! ping -c 1 -W 3 "$HOST" >/dev/null 2>&1; then
-      if [ "$JSON_OUTPUT" = "1" ]; then
+if [ "$PING_SCAN" = "1" ]
+then
+  if command -v ping >/dev/null 2>&1
+  then
+    if ! ping -c 1 -W 3 "$HOST" >/dev/null 2>&1
+    then
+      if [ "$JSON_OUTPUT" = "1" ]
+      then
         json_init "$HOST"
         json_output
       else
-        echo_warning "Host $HOST appears to be down (ping failed)"
+        echo_warning "Host ${HOST} appears to be down (ping failed)"
         echo_info "Use -Pn to skip ping scan"
       fi
       exit 1
     fi
   else
-    if [ "$JSON_OUTPUT" = "0" ]; then
+    if [ "$JSON_OUTPUT" = "0" ]
+    then
       echo_warning "ping command not available, skipping host discovery"
     fi
   fi

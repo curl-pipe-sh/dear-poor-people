@@ -3,6 +3,10 @@
 
 set -eu
 
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+
 # Ensure we run from the directory containing the script so we can find the tools
 SCRIPT_PATH=$0
 if [ "${SCRIPT_PATH%/*}" = "$SCRIPT_PATH" ]
@@ -44,7 +48,7 @@ USAGE
 }
 
 error_missing_arg() {
-  echo "option '$1' requires an argument" >&2
+  echo_error "option '$1' requires an argument"
   usage
   exit 2
 }
@@ -178,7 +182,7 @@ do
       break
       ;;
     -*)
-      echo "unknown option '$1'" >&2
+      echo_error "unknown option '$1'"
       usage
       exit 2
       ;;
@@ -197,7 +201,7 @@ done
 
 if [ -z "$DEST" ]
 then
-  echo "destination required (--dest or DEST env var)" >&2
+  echo_error "destination required (--dest or DEST env var)"
   exit 2
 fi
 
@@ -252,7 +256,7 @@ then
       done
       continue
     else
-      echo "warning: no tool matches pattern '$NAME_ARG'" >&2
+      echo_warning "no tool matches pattern '${NAME_ARG}'"
       continue
     fi
   fi
@@ -263,7 +267,7 @@ then
       IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_MATCH"
     fi
   else
-    echo "warning: no tool matches '$NAME_ARG'" >&2
+    echo_warning "no tool matches '${NAME_ARG}'"
   fi
 done
 
