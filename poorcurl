@@ -10,7 +10,7 @@
 set -eu
 
 usage() {
-  echo "Usage: curl [options] URL" >&2
+  echo "Usage: poorcurl [options] URL" >&2
   echo
   echo "Supported (subset):" >&2
   echo "  -s                     silent" >&2

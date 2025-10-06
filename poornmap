@@ -27,7 +27,7 @@ JSON_SCAN_TIME=""
 
 usage() {
   cat << EOF
-Usage: $0 [OPTIONS] HOST
+Usage: poornmap [OPTIONS] HOST
 Options:
   -p PORTS         Port specification (e.g., 22,80,443 or 1-1000)
   -Pn              Skip ping scan (disable host discovery)

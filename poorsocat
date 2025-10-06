@@ -5,7 +5,7 @@
 
 usage() {
   cat <<USAGE >&2
-Usage: $(basename "$0") DEVICE [BAUD]
+Usage: poorsocat DEVICE [BAUD]
 
 A minimal interactive TTY bridge for serial communication.
 
@@ -17,9 +17,9 @@ Options:
   -h, --help    Show this help message
 
 Examples:
-  $(basename "$0") /dev/ttyUSB0           # Connect to USB serial at 115200 baud
-  $(basename "$0") /dev/ttyACM0 9600      # Connect to Arduino at 9600 baud
-  $(basename "$0") /dev/ttyS0 38400       # Connect to serial port at 38400 baud
+  poorsocat /dev/ttyUSB0           # Connect to USB serial at 115200 baud
+  poorsocat /dev/ttyACM0 9600      # Connect to Arduino at 9600 baud
+  poorsocat /dev/ttyS0 38400       # Connect to serial port at 38400 baud
 
 Note: You may need appropriate permissions to access serial devices.
       Try adding your user to the 'dialout' group: sudo usermod -a -G dialout \$USER
@@ -34,6 +34,8 @@ case "${1:-}" in
     ;;
   "")
     echo "Error: DEVICE argument required" >&2
+    echo "Usage: poorsocat DEVICE [BAUD]" >&2
+    echo "A minimal interactive TTY bridge for serial communication." >&2
     usage
     exit 2
     ;;

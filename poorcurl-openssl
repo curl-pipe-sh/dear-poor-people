@@ -24,7 +24,7 @@ max_redirs=${MAX_REDIRECTS_DEFAULT}
 url=
 
 usage() {
-  echo "Usage: $0 [OPTIONS] URL"
+  echo "Usage: poorcurl-openssl [OPTIONS] URL"
   echo
   echo "Options:"
   echo "  -s                Silent (suppress TLS chatter)"
