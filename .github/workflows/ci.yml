@@ -12,52 +12,40 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
     - name: Install uv
       uses: astral-sh/setup-uv@v2
       with:
         version: "latest"
 
-    - name: Set up Python
-      run: uv python install 3.13
-
     - name: Install dependencies
       run: uv sync --all-extras --dev
 
-    - name: Check code formatting
-      id: format
-      continue-on-error: true
-      run: uv run ruff format --check .
+    - name: Lint and format with Ruff
+      uses: astral-sh/ruff-action@v1
+      with:
+        src: "./poor_installer_web"
+        args: "check --output-format=github"
 
-    - name: Check code linting
-      id: lint
-      continue-on-error: true
-      run: uv run ruff check .
-
-    - name: Check import sorting
-      id: imports
-      continue-on-error: true
-      run: uv run ruff check --select I --diff .
+    - name: Check code formatting with Ruff
+      uses: astral-sh/ruff-action@v1
+      with:
+        src: "./poor_installer_web"
+        args: "format --check"
 
     - name: Type check with mypy
-      id: typecheck
-      continue-on-error: true
-      run: uv run mypy poor_installer_web.py
+      run: uv run mypy poor_installer_web/*.py
 
     - name: Lint shell scripts with shellcheck
-      id: shellcheck
-      continue-on-error: true
-      run: shellcheck poor* lib/*.sh templates/*.sh
-
-    - name: Check results
-      if: steps.format.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.imports.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.shellcheck.outcome == 'failure'
-      run: |
-        echo "❌ Some linting checks failed:"
-        echo "- Format check: ${{ steps.format.outcome }}"
-        echo "- Lint check: ${{ steps.lint.outcome }}"
-        echo "- Import sorting: ${{ steps.imports.outcome }}"
-        echo "- Type checking: ${{ steps.typecheck.outcome }}"
-        echo "- Shell checking: ${{ steps.shellcheck.outcome }}"
-        exit 1
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: './lib ./templates'
+        additional_files: 'poorcolumn poorcurl poorcurl-openssl poor-installer poornmap poorsocat'
+        severity: error
 
   hadolint:
     runs-on: ubuntu-latest
@@ -74,13 +62,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
     - name: Install uv
       uses: astral-sh/setup-uv@v2
       with:
         version: "latest"
-
-    - name: Set up Python
-      run: uv python install 3.13
 
     - name: Install dependencies
       run: uv sync --all-extras --dev

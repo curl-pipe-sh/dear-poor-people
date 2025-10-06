@@ -1,0 +1,75 @@
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@pschmitt"
+    assignees:
+      - "@pschmitt"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Python dependencies (pip for pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "@pschmitt"
+    assignees:
+      - "@pschmitt"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group FastAPI related packages
+      fastapi:
+        patterns:
+          - "fastapi*"
+          - "uvicorn*"
+          - "starlette*"
+          - "pydantic*"
+      # Group development tools
+      dev-tools:
+        patterns:
+          - "pytest*"
+          - "mypy*"
+          - "ruff*"
+          - "types-*"
+          - "httpx*"
+      # Group build tools
+      build-tools:
+        patterns:
+          - "hatchling*"
+          - "setuptools*"
+          - "wheel*"
+          - "build*"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "@pschmitt"
+    assignees:
+      - "@pschmitt"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
