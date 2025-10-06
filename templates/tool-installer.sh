@@ -78,8 +78,8 @@ done
 
 # Set default destination
 if [ -z "$DEST" ]; then
-  if [ -n "${DEST:-}" ]; then
-    DEST="$DEST"
+  if [ -n "${DEST_ENV:-}" ]; then
+    DEST="$DEST_ENV"
   else
     DEST="$HOME/.local/bin"
   fi
@@ -99,19 +99,18 @@ fi
 
 # Determine binary name
 if [ "$EMULATE" = 1 ]; then
-  if [ "$TOOL_NAME" = "curl-openssl" ]; then
-    BIN_NAME="curl-openssl"
-  else
-    # Remove "poor" prefix if it exists
-    BIN_NAME=$(echo "$TOOL_NAME" | sed 's/^poor//')
-  fi
+  # Remove "poor" prefix if it exists for emulation mode
+  BIN_NAME=$(echo "$TOOL_NAME" | sed 's/^poor//')
 else
-  # Use full poor-tool name
-  if [ "$TOOL_NAME" = "curl-openssl" ]; then
-    BIN_NAME="poorcurl-openssl"
-  else
-    BIN_NAME="poor$TOOL_NAME"
-  fi
+  # Use full poor-tool name, add "poor" prefix if not already present
+  case "$TOOL_NAME" in
+    poor*)
+      BIN_NAME="$TOOL_NAME"
+      ;;
+    *)
+      BIN_NAME="poor$TOOL_NAME"
+      ;;
+  esac
 fi
 
 TARGET_FILE="$DEST/$BIN_NAME"
@@ -125,6 +124,54 @@ elif has_command wget; then
 else
   echo_error "Neither curl nor wget found. Cannot download $TOOL_NAME."
   exit 1
+fi
+
+# Handle special case for "all tools" installation
+if [ "$TOOL_NAME" = "all" ]; then
+  echo_info "Installing all poor-tools"
+  echo_info "This will download and install: nmap, curl, curl-openssl, column, socat"
+
+  TOOLS="nmap curl curl-openssl column socat"
+  BASE_URL="${SCRIPT_URL%/all}"
+
+  for tool in $TOOLS; do
+    echo_info "Installing $tool..."
+    tool_url="$BASE_URL/$tool"
+
+    # Determine tool filename
+    if [ "$EMULATE" = 1 ]; then
+      tool_bin=$(echo "$tool" | sed 's/^poor//')
+    else
+      case "$tool" in
+        poor*) tool_bin="$tool" ;;
+        *) tool_bin="poor$tool" ;;
+      esac
+    fi
+
+    tool_target="$DEST/$tool_bin"
+
+    case "$DOWNLOADER" in
+      curl)
+        if curl -fsSL "$tool_url" -o "$tool_target"; then
+          chmod +x "$tool_target"
+          echo_success "✅ Installed $tool_bin"
+        else
+          echo_error "❌ Failed to download $tool"
+        fi
+        ;;
+      wget)
+        if wget -q "$tool_url" -O "$tool_target"; then
+          chmod +x "$tool_target"
+          echo_success "✅ Installed $tool_bin"
+        else
+          echo_error "❌ Failed to download $tool"
+        fi
+        ;;
+    esac
+  done
+
+  echo_success "All tools installation complete!"
+  exit 0
 fi
 
 if [ "$UNINSTALL" = 1 ]; then

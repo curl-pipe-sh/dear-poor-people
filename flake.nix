@@ -231,6 +231,11 @@
                   files = "main\\.py$";
                 };
 
+                # Shellcheck
+                shellcheck = {
+                  enable = true;
+                };
+
                 # Nix formatting
                 nixfmt-rfc-style = {
                   enable = true;

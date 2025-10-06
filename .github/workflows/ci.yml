@@ -43,14 +43,20 @@ jobs:
       continue-on-error: true
       run: uv run mypy main.py
 
+    - name: Lint shell scripts with shellcheck
+      id: shellcheck
+      continue-on-error: true
+      run: shellcheck poor* lib/*.sh templates/*.sh
+
     - name: Check results
-      if: steps.format.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.imports.outcome == 'failure' || steps.typecheck.outcome == 'failure'
+      if: steps.format.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.imports.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.shellcheck.outcome == 'failure'
       run: |
         echo "❌ Some linting checks failed:"
         echo "- Format check: ${{ steps.format.outcome }}"
         echo "- Lint check: ${{ steps.lint.outcome }}"
         echo "- Import sorting: ${{ steps.imports.outcome }}"
         echo "- Type checking: ${{ steps.typecheck.outcome }}"
+        echo "- Shell checking: ${{ steps.shellcheck.outcome }}"
         exit 1
 
   test:

@@ -31,7 +31,13 @@ def test_installer_endpoints() -> None:
         response = client.get(endpoint)
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/plain; charset=utf-8"
-        assert "poor-install" in response.text
+        # New behavior: /install uses tool-installer.sh template with "all" tools
+        if endpoint == "/install":
+            assert "all installer" in response.text
+            assert "Installing all poor-tools" in response.text
+        else:
+            # Other endpoints still use poor-installer
+            assert "poor-install" in response.text
 
 
 def test_tool_installer_endpoints() -> None:

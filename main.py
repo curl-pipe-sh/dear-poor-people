@@ -250,6 +250,37 @@ async def get_poorsocat(no_templating: str | None = None) -> Response:
 
 
 @app.get("/install", response_class=PlainTextResponse)
+@app.get("/install/", response_class=PlainTextResponse)
+async def get_install_all(
+    request: Request, no_templating: str | None = None
+) -> Response:
+    """Generate installer script for all tools."""
+    server_url = get_server_url(request)
+
+    try:
+        # Read the template
+        content = Path("templates/tool-installer.sh").read_text()
+
+        if no_templating == "1":
+            return Response(content=content, media_type="text/plain; charset=utf-8")
+
+        # Replace template variables for "all tools" case
+        content = content.replace("TOOL_NAME", "all")
+        content = content.replace("SERVER_URL", server_url)
+
+        # Process includes
+        content = process_includes(content, Path("."))
+
+        return Response(content=content, media_type="text/plain; charset=utf-8")
+
+    except FileNotFoundError:
+        return Response(
+            content="Error: installer template not found",
+            status_code=404,
+            media_type="text/plain; charset=utf-8",
+        )
+
+
 @app.get("/installer", response_class=PlainTextResponse)
 async def get_installer(no_templating: str | None = None) -> Response:
     """Serve the poor-installer script."""
