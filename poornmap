@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 # INCLUDE_FILE: lib/echo.sh
 
 # Echo utilities (embedded for standalone use - in web installer, above INCLUDE_FILE will replace this)
@@ -18,7 +18,8 @@ echo_fancy() {
   line="$prefix $*"
   line_fmt="$line"
 
-  if [ -z "$NO_COLOR" ] && [ -z "$CRON" ]; then
+  if [ -z "$NO_COLOR" ] && [ -z "$CRON" ]
+  then
     line_fmt="${color}${prefix}\033[0m $*"
   fi
 
@@ -32,7 +33,8 @@ echo_fancy() {
 
 echo_info() {
   # Respect QUIET by suppressing info-level logs
-  if [ -n "$QUIET" ]; then
+  if [ -n "$QUIET" ]
+  then
     return 0
   fi
   prefix="INF"
@@ -95,7 +97,7 @@ Usage: $0 [OPTIONS] HOST
 Options:
   -p PORTS         Port specification (e.g., 22,80,443 or 1-1000)
   -Pn              Skip ping scan (disable host discovery)
-  --timeout SECS   Timeout in seconds (default: $TIMEOUT)
+  --timeout SECS   Timeout in seconds (default: ${TIMEOUT})
   --json           Output results in JSON format
   --prog TOOL      Force specific tool (ncat, nc, netcat, busybox, bash)
   -h, --help       Show this help message
