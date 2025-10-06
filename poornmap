@@ -168,7 +168,7 @@ detect_netcat_tool() {
     echo_error "Specified tool '$PROG' not available"
     return 1
   fi
-  
+
   # Auto-detection: Try tools from most powerful to least convenient for us
   # ncat (from nmap) - most powerful
   if command -v ncat >/dev/null 2>&1; then
@@ -176,7 +176,7 @@ detect_netcat_tool() {
     NETCAT_ARGS="-z -v"
     return 0
   fi
-  
+
   # OpenBSD netcat - good feature set
   if command -v nc >/dev/null 2>&1; then
     # Test if it supports -z flag (OpenBSD/traditional nc)
@@ -186,35 +186,35 @@ detect_netcat_tool() {
       return 0
     fi
   fi
-  
+
   # GNU netcat - different syntax
   if command -v netcat >/dev/null 2>&1; then
     NETCAT_TOOL="netcat"
     NETCAT_ARGS="-z -v"
     return 0
   fi
-  
+
   # Busybox netcat - minimal but widely available
   if command -v busybox >/dev/null 2>&1 && busybox nc 2>&1 | grep -q "Usage:"; then
     NETCAT_TOOL="busybox nc"
     NETCAT_ARGS="-v"
     return 0
   fi
-  
+
   # Regular nc without -z support (fallback)
   if command -v nc >/dev/null 2>&1; then
     NETCAT_TOOL="nc"
     NETCAT_ARGS="-v"
     return 0
   fi
-  
+
   # bash /dev/tcp fallback
   if command -v bash >/dev/null 2>&1; then
     NETCAT_TOOL="bash"
     NETCAT_ARGS=""
     return 0
   fi
-  
+
   return 1
 }
 
@@ -223,7 +223,7 @@ test_port() {
   host="$1"
   port="$2"
   timeout_val="$3"
-  
+
   case "$NETCAT_TOOL" in
     "ncat"|"nc"|"netcat")
       if echo "$NETCAT_ARGS" | grep -q -- "-z"; then
@@ -235,7 +235,7 @@ test_port() {
       fi
       ;;
     "busybox nc")
-      # Busybox nc doesn't support -z, use connection attempt  
+      # Busybox nc doesn't support -z, use connection attempt
       timeout "$timeout_val" busybox nc -w1 "$host" "$port" </dev/null >/dev/null 2>&1
       ;;
     "bash")
@@ -260,7 +260,7 @@ is_integer() {
 parse_ports() {
   port_spec="$1"
   ports_list=""
-  
+
   # Handle comma-separated ports
   for port_range in $(echo "$port_spec" | tr ',' ' '); do
     case "$port_range" in
@@ -268,19 +268,19 @@ parse_ports() {
         # Handle port ranges like 1-1000
         start_port=$(echo "$port_range" | cut -d'-' -f1)
         end_port=$(echo "$port_range" | cut -d'-' -f2)
-        
+
         # Validate that both are integers
         if ! is_integer "$start_port" || ! is_integer "$end_port"; then
           echo_error "Invalid port range: $port_range (ports must be integers)"
           return 1
         fi
-        
+
         # Validate range
         if [ "$start_port" -gt "$end_port" ] || [ "$start_port" -lt 1 ] || [ "$end_port" -gt 65535 ]; then
           echo_error "Invalid port range: $port_range (must be 1-65535)"
           return 1
         fi
-        
+
         # Generate port list
         i="$start_port"
         while [ "$i" -le "$end_port" ]; do
@@ -294,7 +294,7 @@ parse_ports() {
           echo_error "Invalid port: $port_range (must be an integer)"
           return 1
         fi
-        
+
         if [ "$port_range" -lt 1 ] || [ "$port_range" -gt 65535 ]; then
           echo_error "Invalid port: $port_range (must be 1-65535)"
           return 1
@@ -303,7 +303,7 @@ parse_ports() {
         ;;
     esac
   done
-  
+
   echo "$ports_list"
 }
 
@@ -318,11 +318,11 @@ json_init() {
 json_add_port() {
   port="$1"
   state="$2"
-  
+
   if [ -n "$JSON_RESULTS" ]; then
     JSON_RESULTS="$JSON_RESULTS,"
   fi
-  
+
   JSON_RESULTS="$JSON_RESULTS{\"port\":$port,\"state\":\"$state\"}"
 }
 
@@ -344,20 +344,20 @@ EOF
 scan_ports() {
   host="$1"
   ports="$2"
-  
+
   if [ "$JSON_OUTPUT" = "1" ]; then
     json_init "$host"
   else
     echo_info "Starting port scan on $host"
     echo_info "Using tool: $NETCAT_TOOL"
   fi
-  
+
   open_ports=0
   total_ports=0
-  
+
   for port in $ports; do
     total_ports=$((total_ports + 1))
-    
+
     if test_port "$host" "$port" "$TIMEOUT"; then
       # Port is open
       open_ports=$((open_ports + 1))
@@ -375,13 +375,13 @@ scan_ports() {
       fi
     fi
   done
-  
+
   if [ "$JSON_OUTPUT" = "1" ]; then
     json_output
   else
     echo_info "Scan complete: $open_ports/$total_ports ports open"
   fi
-  
+
   # Return non-zero if no ports are open
   [ "$open_ports" -gt 0 ]
 }
