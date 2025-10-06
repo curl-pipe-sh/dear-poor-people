@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+# shellcheck disable=SC3045,SC3052 # Uses bash-specific features for advanced functionality
 # curl-ossl — tiny curl-ish fetcher using openssl s_client (binary-safe)
 # Features: HTTPS only, HTTP/1.1, redirects, -o, -I, -s/-S, -f, -4/-6, -v, --max-redirs, dechunk
 # Conventions: booleans use "1" for true, unset/empty for false; no exit in funcs; usage() prints only.
@@ -17,7 +18,7 @@ force_v6=
 verbose=
 
 outfile=
-max_redirs=$MAX_REDIRECTS_DEFAULT
+max_redirs=${MAX_REDIRECTS_DEFAULT}
 url=
 
 usage() {
@@ -28,7 +29,7 @@ usage() {
   echo "  -S                Show errors (useful with -s)"
   echo "  -o FILE           Write body to FILE"
   echo "  -I                Headers only"
-  echo "  -L                Follow redirects (default: $MAX_REDIRECTS_DEFAULT)"
+  echo "  -L                Follow redirects (default: ${MAX_REDIRECTS_DEFAULT})"
   echo "  --max-redirs N    Set redirect limit"
   echo "  -f                Fail on HTTP >= 400 (exit 22)"
   echo "  -4                Force IPv4 (require A record; else exit 6)"
@@ -51,70 +52,70 @@ do
     -s)
       silent=1
       shift
-    ;;
+      ;;
     -S)
       show_error=1
       shift
-    ;;
+      ;;
     -o)
       shift
-      outfile=${1:-}
+      outfile="${1:-}"
       if [ -z "${outfile:-}" ]
       then
         usage
         exit 2
       fi
       shift
-    ;;
+      ;;
     -I)
       head_only=1
       shift
-    ;;
+      ;;
     -L)
       # following is on by default; keep switch for compatibility
       shift
-    ;;
+      ;;
     --max-redirs)
       shift
-      max_redirs=${1:-}
+      max_redirs="${1:-}"
       if [ -z "${max_redirs:-}" ]
       then
         usage
         exit 2
       fi
       shift
-    ;;
+      ;;
     -f)
       fail_on_error=1
       shift
-    ;;
+      ;;
     -4)
       force_v4=1
       force_v6=
       shift
-    ;;
+      ;;
     -6)
       force_v6=1
       force_v4=
       shift
-    ;;
+      ;;
     -v|--verbose)
       verbose=1
       shift
-    ;;
+      ;;
     -h|--help)
       usage
       exit 0
-    ;;
+      ;;
     -*)
       usage
       exit 2
-    ;;
+      ;;
     *)
-      url=$1
+      url="$1"
       shift
       break
-    ;;
+      ;;
   esac
 done
 
@@ -127,26 +128,26 @@ fi
 # default to https if no scheme
 case "$url" in
   http://*|https://*) : ;;
-  *) url="https://$url" ;;
+  *) url="https://${url}" ;;
 esac
 
 # -------- helpers --------
 parse_url() {
-  _u=$1
+  _u="$1"
   case "$_u" in
-    https://*) proto=https; rest=${_u#https://} ;;
-    http://*)  proto=http;  rest=${_u#http://}  ;;
-    *)         proto=https; rest=$_u            ;;
+    https://*) proto=https; rest="${_u#https://}" ;;
+    http://*)  proto=http;  rest="${_u#http://}"  ;;
+    *)         proto=https; rest="${_u}"          ;;
   esac
 
   case "$rest" in
     */*) hostport=${rest%%/*}; path="/${rest#*/}" ;;
-    *)   hostport=$rest;        path="/"          ;;
+    *)   hostport=${rest};        path="/"        ;;
   esac
 
   case "$hostport" in
     *:*) host=${hostport%:*}; port=${hostport#*:} ;;
-    *)   host=$hostport; [ "$proto" = https ] && port=443 || port=80 ;;
+    *)   host=${hostport}; [ "$proto" = https ] && port=443 || port=80 ;;
   esac
 
   printf '%s %s %s %s\n' "$proto" "$host" "$port" "$path"
@@ -159,14 +160,17 @@ resolve_ip_v4() {
   then
     ip=$(getent ahostsv4 "$_host" 2>/dev/null | awk 'NF{print $1; exit}')
   fi
+
   if [ -z "${ip:-}" ] && command -v nslookup >/dev/null 2>&1
   then
     ip=$(nslookup -type=A "$_host" 2>/dev/null | awk '/^Address: /{print $2; exit}')
   fi
+
   if [ -z "${ip:-}" ]
   then
     return 1
   fi
+
   printf '%s\n' "$ip"
 }
 
@@ -184,14 +188,17 @@ resolve_ip_v6() {
         if (index(ip, ":") > 0) { print ip; exit }
       }')
   fi
+
   if [ -z "${ip6:-}" ] && command -v nslookup >/dev/null 2>&1
   then
     ip6=$(nslookup -type=AAAA "$_host" 2>/dev/null | awk '/has IPv6 address/ {print $NF; exit}')
   fi
+
   if [ -z "${ip6:-}" ]
   then
     return 1
   fi
+
   printf '%s\n' "$ip6"
 }
 
@@ -214,22 +221,30 @@ join_location() {
     https://*|http://*)
       printf '%s\n' "$loc"
       return 0
-    ;;
+      ;;
     //*)
       printf '%s\n' "$bp:${loc}"
       return 0
-    ;;
+      ;;
     /*)
       printf '%s://%s:%s%s\n' "$bp" "$bh" "$bo" "$loc"
       return 0
-    ;;
+      ;;
     *)
       base_dir=${bpath%/*}
       [ -n "$base_dir" ] || base_dir="/"
-      case "$base_dir" in */) : ;; *) base_dir="$base_dir/";; esac
+      case "$base_dir" in
+        */)
+          :
+          ;;
+        *)
+          base_dir="$base_dir/"
+          ;;
+      esac
+
       printf '%s://%s:%s%s%s\n' "$bp" "$bh" "$bo" "$base_dir" "$loc"
       return 0
-    ;;
+      ;;
   esac
 }
 
@@ -265,12 +280,13 @@ fetch_https_stream() {
     errf=$(mktemp 2>/dev/null || echo "/tmp/curl-ossl.$$-err")
 
     # Run; ignore s_client exit — validate by captured HTTP headers instead
+    # shellcheck disable=SC2086 # args contains multiple openssl arguments
     printf '%b' "$req" \
     | openssl s_client $args 2>"$errf" \
     | {
         : >"$hdrf"
         while IFS= read -r line
-        do
+do
           line=$(printf '%s' "$line" | tr -d '\r')
           [ -z "$line" ] && break
           printf '%s\n' "$line" >>"$hdrf"
@@ -278,7 +294,8 @@ fetch_https_stream() {
         cat >"$rawf"
       } || true
 
-    if head -n1 "$hdrf" | grep -q '^HTTP/'; then
+    if head -n1 "$hdrf" | grep -q '^HTTP/'
+    then
       logv "got HTTP response"
       rm -f "$errf"
       return 0
@@ -288,6 +305,7 @@ fetch_https_stream() {
     then
       sed 's/^/openssl: /' "$errf" >&2 || true
     fi
+
     rm -f "$errf"
   done
 
@@ -306,7 +324,11 @@ dechunk_file() {
     line=$(printf '%s' "$line" | tr -d '\r')
     sizehex=${line%%;*}
     [ -n "$sizehex" ] || continue
-    case "$sizehex" in *[!0-9a-fA-F]* ) break ;; esac
+    case "$sizehex" in
+      *[!0-9a-fA-F]* )
+        break
+        ;;
+    esac
     size=$((16#$(printf '%s' "$sizehex" | tr 'a-f' 'A-F')))
     [ "$size" -gt 0 ] || break
     dd bs=1 count="$size" <&9 >>"$out" 2>/dev/null || true
@@ -321,10 +343,12 @@ follow() {
   cur=$1
   n=0
 
-  while :; do
+  while :
+  do
     n=$((n+1))
     [ "$n" -le "$max_redirs" ] || { echo "curl-ossl: too many redirects" >&2; return 22; }
 
+    # shellcheck disable=SC2046 # parse_url returns multiple values to assign
     set -- $(parse_url "$cur")
     proto=$1; host=$2; port=$3; path=$4
 
@@ -343,7 +367,10 @@ follow() {
         logv "resolved IPv4: $connect_host"
       else
         logv "no A record for $host"
-        [ -z "$silent" ] && [ -n "$show_error" ] && echo "curl-ossl: could not resolve IPv4 for $host" >&2 || true
+        if [ -z "$silent" ] && [ -n "$show_error" ]
+        then
+          echo "curl-ossl: could not resolve IPv4 for $host" >&2
+        fi
         return 6
       fi
     elif [ -n "$force_v6" ]
@@ -353,7 +380,10 @@ follow() {
         logv "resolved IPv6: $connect_host"
       else
         logv "no AAAA record for $host"
-        [ -z "$silent" ] && [ -n "$show_error" ] && echo "curl-ossl: could not resolve IPv6 for $host" >&2 || true
+        if [ -z "$silent" ] && [ -n "$show_error" ]
+        then
+          echo "curl-ossl: could not resolve IPv6 for $host" >&2
+        fi
         return 6
       fi
     else

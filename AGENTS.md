@@ -20,6 +20,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Testing**: Use `pytest` for all tests, aim for good coverage
 - **Dependencies**: Manage with `uv`, pin versions in pyproject.toml
 - **Docker**: Use `hadolint` for Dockerfile linting
+- **Shell scripts**: Use `shellcheck` for shell script linting
 
 ### File Organization
 
@@ -65,6 +66,86 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Library functions**: Place reusable functions in `lib/`
 - **Style**: Follow existing poor-tools style (POSIX shell where possible)
 - **Comments**: Use meaningful comments for complex logic
+- **Variable naming**: Use UPPERCASE for global variables, lowercase for local variables
+- **Variable expansion**: Use braces `${VAR}` when variable is not used alone:
+  ```bash
+  # Good (standalone - braces optional):
+  echo "$var"
+  [ -n "$var" ]
+  case "$var" in
+
+  # Good (with braces when not alone - braces required):
+  echo "my var=${var}"
+  echo "path=${HOME}/bin"
+  other_var=${var}
+
+  # Avoid (missing braces when not alone):
+  echo "my var=$var"
+  echo "path=$HOME/bin"
+  other_var=$var
+  ```
+- **POSIX Compatibility**:
+  - **NEVER use `local` keyword in POSIX sh** - not supported (use positional parameters instead)
+  - **`local` is fine in bash** - only avoid in POSIX sh scripts
+  - Prefer POSIX-compliant constructs when targeting maximum portability
+- **Control structures**: Place `then`, `do`, `else` on separate lines for readability:
+  ```bash
+  # Good:
+  if [ "$condition" ]
+  then
+    action
+  fi
+
+  while [ "$condition" ]
+  do
+    action
+  done
+
+  # Avoid:
+  if [ "$condition" ]; then action; fi
+  ```
+- **Alignment**: `then`, `do`, `else` should align with the same indentation as their control structure
+- **Line endings**: One statement per line, avoid semicolon separators
+  ```bash
+  # Good:
+  var1="one"
+  var2="two"
+
+  case "$var" in
+    one)
+      echo "xxxx"
+      ;;
+    two)
+      echo "yyyy"
+      ;;
+  esac
+
+  # Avoid:
+  var1="one"; var2="two"
+  case "$var" in one) echo "xxxx" ;; two) echo "yyyy" ;; esac
+  ```
+- **Function exits**: Use `return` in functions, `exit` only from main script flow
+- **DRY principle**: Extract common patterns into functions to avoid repetition
+  ```bash
+  # Good (POSIX-compatible):
+  download_file() {
+    # Use positional parameters: $1=url, $2=target, $3=downloader
+    case "$3" in
+      curl)
+        curl -fsSL "$1" -o "$2"
+        ;;
+      wget)
+        wget -q "$1" -O "$2"
+        ;;
+    esac
+  }
+
+  # Avoid (not POSIX sh):
+  download_file() {
+    local url="$1"  # ❌ 'local' not supported in POSIX sh (fine in bash)
+    local target="$2"
+  }
+  ```
 
 ### Testing
 

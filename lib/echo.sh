@@ -20,7 +20,7 @@ echo_fancy() {
   local line_fmt="$line"
 
   if [[ -z "$NO_COLOR" && -z "$CRON" ]]
-  then
+then
     line_fmt="${color}${prefix}\e[0m $*"
   fi
 
@@ -34,7 +34,7 @@ echo_fancy() {
 echo_info() {
   # Respect QUIET by suppressing info-level logs
   if [[ -n "$QUIET" ]]
-  then
+then
     return 0
   fi
   local prefix="INF"
@@ -87,7 +87,7 @@ echo_dryrun() {
 
 echo_confirm() {
   if [[ -n "$NOCONFIRM" ]]
-  then
+then
     return 0
   fi
 

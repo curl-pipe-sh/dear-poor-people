@@ -1,5 +1,6 @@
 """Tests for the poor-tools web installer."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from main import app
@@ -23,21 +24,37 @@ def test_root_endpoint() -> None:
     assert "Available endpoints:" in response.text
 
 
+def test_list_endpoint() -> None:
+    """Test the list tools endpoint."""
+    response = client.get("/list")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    assert "Available tools and endpoints" in response.text
+    assert "/nmap" in response.text
+    assert "/curl/install" in response.text
+
+
+def test_head_root_endpoint() -> None:
+    """Test HEAD request to root returns list."""
+    response = client.head("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+
+
 def test_installer_endpoints() -> None:
     """Test various installer endpoints."""
-    endpoints = ["/install", "/installer", "/install-something"]
+    # /install should now use tool-installer.sh template with "all" tools
+    response = client.get("/install")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    assert "all installer" in response.text
+    assert "Installing all poor-tools" in response.text
 
-    for endpoint in endpoints:
-        response = client.get(endpoint)
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "text/plain; charset=utf-8"
-        # New behavior: /install uses tool-installer.sh template with "all" tools
-        if endpoint == "/install":
-            assert "all installer" in response.text
-            assert "Installing all poor-tools" in response.text
-        else:
-            # Other endpoints still use poor-installer
-            assert "poor-install" in response.text
+    # /installer should still use poor-installer
+    response = client.get("/installer")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    assert "poor-install" in response.text
 
 
 def test_tool_installer_endpoints() -> None:
@@ -102,7 +119,7 @@ def test_templating_disabled() -> None:
     response = client.get("/install?no_templating=1")
     assert response.status_code == 200
     # With templating disabled, INCLUDE_FILE comments should remain as-is
-    # (though our current scripts don't have them yet)
+    assert "INCLUDE_FILE:" in response.text
 
 
 def test_templating_enabled() -> None:
@@ -110,10 +127,43 @@ def test_templating_enabled() -> None:
     response = client.get("/install")
     assert response.status_code == 200
     # With templating enabled, INCLUDE_FILE comments should be processed
-    # (though our current scripts don't have them yet)
+    assert "BEGIN INCLUDE:" in response.text or "has_command" in response.text
 
 
-def test_nonexistent_file() -> None:
-    """Test handling of nonexistent files."""
-    # This would happen if the script files were missing
-    # For now, we just test that the endpoints exist
+def test_tool_aliases() -> None:
+    """Test that tool aliases work correctly."""
+    # Test that both /curl and /poorcurl return the same content
+    response1 = client.get("/curl")
+    response2 = client.get("/poorcurl")
+    assert response1.status_code == 200
+    assert response2.status_code == 200
+    assert response1.text == response2.text
+
+    # Test that both /column and /poorcolumn work
+    response1 = client.get("/column")
+    response2 = client.get("/poorcolumn")
+    assert response1.status_code == 200
+    assert response2.status_code == 200
+    assert response1.text == response2.text
+
+
+def test_server_url_detection() -> None:
+    """Test that server URL is correctly detected from request headers."""
+    response = client.get("/install", headers={"host": "example.com:8080"})
+    assert response.status_code == 200
+    assert "http://example.com:8080" in response.text
+
+
+@pytest.mark.parametrize("no_templating", ["1", "0", None])
+def test_templating_parameter(no_templating: str | None) -> None:
+    """Test templating parameter works correctly."""
+    params = {"no_templating": no_templating} if no_templating else {}
+    response = client.get("/install", params=params)
+    assert response.status_code == 200
+
+    if no_templating == "1":
+        # Should contain raw template
+        assert "INCLUDE_FILE:" in response.text
+    else:
+        # Should have processed template
+        assert "has_command" in response.text or "echo_success" in response.text

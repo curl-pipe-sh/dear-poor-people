@@ -1,14 +1,14 @@
 #!/usr/bin/env sh
-# TOOL_NAME installer — install TOOL_NAME from poor-tools web installer
-# Generated from: SERVER_URL
+# <TOOL_NAME> installer — install <TOOL_NAME> from poor-tools web installer
+# Generated from: <SERVER_URL>
 
 set -eu
 
 # INCLUDE_FILE: lib/utils.sh
 # INCLUDE_FILE: lib/echo.sh
 
-TOOL_NAME="TOOL_NAME"
-SCRIPT_URL="SERVER_URL/TOOL_NAME"
+TOOL_NAME="<TOOL_NAME>"
+SCRIPT_URL="<SERVER_URL>/<TOOL_NAME>"
 DEST=""
 EMULATE=0
 CLEAR=0
@@ -16,7 +16,7 @@ UNINSTALL=0
 
 usage() {
   cat <<'USAGE' >&2
-Usage: install-TOOL_NAME [OPTIONS]
+Usage: install-<TOOL_NAME> [OPTIONS]
 
 Options:
   --dest DIR       Install into DIR (or set DEST environment variable)
@@ -25,21 +25,53 @@ Options:
   --uninstall      Remove matching files instead of installing
   -h, --help       Show this help
 
-Installs TOOL_NAME from SERVER_URL
+Installs <TOOL_NAME> from <SERVER_URL>
 USAGE
 }
 
 error_missing_arg() {
   echo "option '$1' requires an argument" >&2
   usage
-  exit 2
+  return 2
+}
+
+# Download file using available downloader
+download_file() {
+  # Use positional parameters directly to avoid 'local' in POSIX sh
+  # $1 = url, $2 = target, $3 = downloader
+
+  case "$3" in
+    curl)
+      if curl -fsSL "$1" -o "$2"
+      then
+        chmod +x "$2"
+        return 0
+      else
+        return 1
+      fi
+      ;;
+    wget)
+      if wget -q "$1" -O "$2"
+      then
+        chmod +x "$2"
+        return 0
+      else
+        return 1
+      fi
+      ;;
+    *)
+      echo_error "Unknown downloader: $3"
+      return 1
+      ;;
+  esac
 }
 
 # Parse arguments
-while [ $# -gt 0 ]; do
+while [ $# -gt 0 ]
+do
   case "$1" in
     --dest)
-      [ $# -gt 1 ] || error_missing_arg "$1"
+      [ $# -gt 1 ] || { error_missing_arg "$1"; exit 2; }
       DEST="$2"
       shift 2
       ;;
@@ -77,8 +109,10 @@ while [ $# -gt 0 ]; do
 done
 
 # Set default destination
-if [ -z "$DEST" ]; then
-  if [ -n "${DEST_ENV:-}" ]; then
+if [ -z "$DEST" ]
+then
+  if [ -n "${DEST_ENV:-}" ]
+then
     DEST="$DEST_ENV"
   else
     DEST="$HOME/.local/bin"
@@ -86,19 +120,22 @@ if [ -z "$DEST" ]; then
 fi
 
 # Ensure destination exists
-if [ "$UNINSTALL" = 0 ]; then
+if [ "$UNINSTALL" = 0 ]
+then
   mkdir -p "$DEST"
 fi
 
 # Clear destination if requested
-if [ "$CLEAR" = 1 ] && [ "$UNINSTALL" = 0 ]; then
+if [ "$CLEAR" = 1 ] && [ "$UNINSTALL" = 0 ]
+then
   echo_info "Clearing destination directory: $DEST"
   rm -rf "$DEST"
   mkdir -p "$DEST"
 fi
 
 # Determine binary name
-if [ "$EMULATE" = 1 ]; then
+if [ "$EMULATE" = 1 ]
+then
   # Remove "poor" prefix if it exists for emulation mode
   BIN_NAME=$(echo "$TOOL_NAME" | sed 's/^poor//')
 else
@@ -117,9 +154,11 @@ TARGET_FILE="$DEST/$BIN_NAME"
 
 # Check for available downloader
 DOWNLOADER=""
-if has_command curl; then
+if has_command curl
+then
   DOWNLOADER="curl"
-elif has_command wget; then
+elif has_command wget
+then
   DOWNLOADER="wget"
 else
   echo_error "Neither curl nor wget found. Cannot download $TOOL_NAME."
@@ -127,19 +166,22 @@ else
 fi
 
 # Handle special case for "all tools" installation
-if [ "$TOOL_NAME" = "all" ]; then
+if [ "$TOOL_NAME" = "all" ]
+then
   echo_info "Installing all poor-tools"
-  echo_info "This will download and install: nmap, curl, curl-openssl, column, socat"
+  echo_info "This will download and install all available tools from the server"
 
   TOOLS="nmap curl curl-openssl column socat"
   BASE_URL="${SCRIPT_URL%/all}"
 
-  for tool in $TOOLS; do
+  for tool in $TOOLS
+  do
     echo_info "Installing $tool..."
     tool_url="$BASE_URL/$tool"
 
     # Determine tool filename
-    if [ "$EMULATE" = 1 ]; then
+    if [ "$EMULATE" = 1 ]
+    then
       tool_bin=$(echo "$tool" | sed 's/^poor//')
     else
       case "$tool" in
@@ -150,33 +192,23 @@ if [ "$TOOL_NAME" = "all" ]; then
 
     tool_target="$DEST/$tool_bin"
 
-    case "$DOWNLOADER" in
-      curl)
-        if curl -fsSL "$tool_url" -o "$tool_target"; then
-          chmod +x "$tool_target"
-          echo_success "Installed $tool_bin"
-        else
-          echo_error "Failed to download $tool"
-        fi
-        ;;
-      wget)
-        if wget -q "$tool_url" -O "$tool_target"; then
-          chmod +x "$tool_target"
-          echo_success "Installed $tool_bin"
-        else
-          echo_error "Failed to download $tool"
-        fi
-        ;;
-    esac
+    if download_file "$tool_url" "$tool_target" "$DOWNLOADER"
+    then
+      echo_success "✅ Installed $tool_bin"
+    else
+      echo_error "❌ Failed to download $tool"
+    fi
   done
 
   echo_success "All tools installation complete!"
   exit 0
 fi
 
-if [ "$UNINSTALL" = 1 ]; then
+if [ "$UNINSTALL" = 1 ]
+then
   echo_info "Uninstalling $TOOL_NAME from $TARGET_FILE"
-  if [ -f "$TARGET_FILE" ]; then
+  if [ -f "$TARGET_FILE" ]
+then
     rm -f "$TARGET_FILE"
     echo_success "Removed $TARGET_FILE"
   else
@@ -184,8 +216,10 @@ if [ "$UNINSTALL" = 1 ]; then
   fi
 
   # Try to remove destination if --clear was specified and it's empty
-  if [ "$CLEAR" = 1 ] && [ -d "$DEST" ]; then
-    if rmdir "$DEST" 2>/dev/null; then
+  if [ "$CLEAR" = 1 ] && [ -d "$DEST" ]
+then
+    if rmdir "$DEST" 2>/dev/null
+then
       echo_info "Removed empty directory: $DEST"
     fi
   fi
@@ -194,24 +228,11 @@ else
   echo_info "Downloading from: $SCRIPT_URL"
 
   # Download the script
-  case "$DOWNLOADER" in
-    curl)
-      if curl -fsSL "$SCRIPT_URL" -o "$TARGET_FILE"; then
-        chmod +x "$TARGET_FILE"
-        echo_success "Successfully installed $BIN_NAME to $TARGET_FILE"
-      else
-        echo_error "Failed to download $TOOL_NAME"
-        exit 1
-      fi
-      ;;
-    wget)
-      if wget -q "$SCRIPT_URL" -O "$TARGET_FILE"; then
-        chmod +x "$TARGET_FILE"
-        echo_success "Successfully installed $BIN_NAME to $TARGET_FILE"
-      else
-        echo_error "Failed to download $TOOL_NAME"
-        exit 1
-      fi
-      ;;
-  esac
+  if download_file "$SCRIPT_URL" "$TARGET_FILE" "$DOWNLOADER"
+  then
+    echo_success "Successfully installed $BIN_NAME to $TARGET_FILE"
+  else
+    echo_error "Failed to download $TOOL_NAME"
+    exit 1
+  fi
 fi

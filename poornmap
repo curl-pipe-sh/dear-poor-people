@@ -33,7 +33,7 @@ then
   PIDS=()
 
   while [[ -n "$1" ]]
-  do
+do
     case "$1" in
       -h|--help|-\?|help)
         usage
@@ -57,18 +57,18 @@ then
   shift
 
   if [[ -z "${PORTS[*]}" ]]
-  then
+then
     PORTS=("$@")
   fi
 
   if [[ -z "$HOST" ]] || [[ -z "${PORTS[*]}" ]]
-  then
+then
     usage >&2
     exit 2
   fi
 
   for PORT in "${PORTS[@]}"
-  do
+do
     (
       MESSAGE="${HOST}:${PORT}"
 
@@ -84,7 +84,7 @@ then
   done
 
   if has_wait_p
-  then
+then
     while [[ "${#PIDS[@]}" -gt 0 ]]
     do
       if ! wait -n -p ENDED_PID

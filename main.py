@@ -46,9 +46,9 @@ def generate_tool_installer(
     try:
         content = template_path.read_text(encoding="utf-8")
 
-        # Replace template variables
-        content = content.replace("TOOL_NAME", tool_name)
-        content = content.replace("SERVER_URL", server_url)
+        # Replace template variables with angle bracket syntax
+        content = content.replace("<TOOL_NAME>", tool_name)
+        content = content.replace("<SERVER_URL>", server_url)
 
         # Process includes if templating is enabled
         if not no_templating:
@@ -256,29 +256,55 @@ async def get_install_all(
 ) -> Response:
     """Generate installer script for all tools."""
     server_url = get_server_url(request)
+    content = generate_tool_installer("all", server_url, no_templating == "1")
+    return PlainTextResponse(
+        content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
+    )
 
-    try:
-        # Read the template
-        content = Path("templates/tool-installer.sh").read_text()
 
-        if no_templating == "1":
-            return Response(content=content, media_type="text/plain; charset=utf-8")
+@app.get("/list", response_class=PlainTextResponse)
+@app.head("/", response_class=PlainTextResponse)
+async def list_tools(request: Request) -> Response:
+    """List available tools in plain text format."""
+    server_url = get_server_url(request)
 
-        # Replace template variables for "all tools" case
-        content = content.replace("TOOL_NAME", "all")
-        content = content.replace("SERVER_URL", server_url)
+    tools_list = f"""# poor-tools Available Tools
 
-        # Process includes
-        content = process_includes(content, Path("."))
+Available tools and endpoints:
 
-        return Response(content=content, media_type="text/plain; charset=utf-8")
+## Direct Tool Downloads:
+- {server_url}/nmap (alias: /poornmap)
+- {server_url}/curl (alias: /poorcurl)
+- {server_url}/curl-openssl (alias: /poorcurl-openssl)
+- {server_url}/column (alias: /poorcolumn)
+- {server_url}/socat (alias: /poorsocat)
 
-    except FileNotFoundError:
-        return Response(
-            content="Error: installer template not found",
-            status_code=404,
-            media_type="text/plain; charset=utf-8",
-        )
+## Tool Installers (generates installer script):
+- {server_url}/nmap/install
+- {server_url}/curl/install
+- {server_url}/curl-openssl/install
+- {server_url}/column/install
+- {server_url}/socat/install
+
+## Batch Installer:
+- {server_url}/install (installs all tools)
+
+## Usage Examples:
+
+# Download and run a tool directly:
+curl -sSL {server_url}/curl | sh
+
+# Install a tool to local bin:
+curl -sSL {server_url}/curl/install | sh
+
+# Install all tools:
+curl -sSL {server_url}/install | sh
+
+# Install with custom destination:
+curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
+"""
+
+    return Response(content=tools_list, media_type="text/plain; charset=utf-8")
 
 
 @app.get("/installer", response_class=PlainTextResponse)

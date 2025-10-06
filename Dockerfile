@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy all source files
 COPY . .
 
-# Install dependencies
+# Install dependencies using pip
 RUN pip install --no-cache-dir .
 
 # Create non-root user

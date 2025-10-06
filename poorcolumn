@@ -28,18 +28,20 @@ do
       shift
       ;;
     -s)
-      if [ $# -lt 2 ]; then
+      if [ $# -lt 2 ]
+      then
         echo "poorcolumn: -s requires an argument" >&2
         usage
         exit 2
       fi
-      SEP=$2
+      SEP="$2"
       SEP_SET=1
       shift 2
       ;;
     -s*)
-      SEP=${1#-s}
-      if [ -z "$SEP" ]; then
+      SEP="${1#-s}"
+      if [ -z "$SEP" ]
+      then
         echo "poorcolumn: -s requires an argument" >&2
         usage
         exit 2
@@ -63,7 +65,8 @@ do
 
 done
 
-if [ "$SEP_SET" -eq 1 ] && [ -z "$SEP" ]; then
+if [ "$SEP_SET" -eq 1 ] && [ -z "$SEP" ]
+then
   echo "poorcolumn: separator cannot be empty" >&2
   exit 2
 fi

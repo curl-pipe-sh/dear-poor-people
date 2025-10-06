@@ -26,10 +26,6 @@
         "aarch64-darwin"
       ];
 
-      imports = [
-        inputs.pre-commit-hooks.flakeModule
-      ];
-
       flake = {
         # System-agnostic NixOS module, available as `nixosModules.default`
         nixosModules.default =
@@ -72,10 +68,10 @@
                 };
 
                 serviceConfig = {
-                  Type = "exec";
+                  Type = "simple";
                   ExecStart = "${pkg}/bin/poor-tools-web";
                   Restart = "always";
-                  RestartSec = 5;
+                  RestartSec = 10;
 
                   # Security hardening
                   DynamicUser = true;
@@ -105,15 +101,12 @@
       perSystem =
         {
           self',
-          config,
           pkgs,
           system,
           ...
         }:
         let
-          python = pkgs.python313;
-
-          pythonEnv = python.withPackages (
+          pythonEnv = pkgs.python313.withPackages (
             ps: with ps; [
               fastapi
               uvicorn
@@ -125,47 +118,45 @@
             filter =
               path: type:
               pkgs.lib.cleanSourceFilter path type
-              && !(pkgs.lib.hasInfix "result" path)
-              && !(pkgs.lib.hasInfix "__pycache__" path)
-              && !(pkgs.lib.hasInfix ".pytest_cache" path)
-              && !(pkgs.lib.hasInfix ".venv" path)
-              && !(pkgs.lib.hasInfix ".ruff_cache" path)
-              && !(pkgs.lib.hasInfix ".mypy_cache" path);
+              && builtins.baseNameOf path != "__pycache__"
+              && builtins.baseNameOf path != ".pytest_cache"
+              && builtins.baseNameOf path != "result"
+              && builtins.baseNameOf path != ".git"
+              && builtins.baseNameOf path != ".venv"
+              && builtins.baseNameOf path != ".ruff_cache"
+              && builtins.baseNameOf path != ".mypy_cache";
           };
 
-          poor-tools-web = pkgs.stdenv.mkDerivation {
+          poor-tools-web = pkgs.python313Packages.buildPythonPackage {
             pname = "poor-tools-web";
             version = "0.1.0";
+            pyproject = true;
             src = cleanSrc;
 
-            nativeBuildInputs = [
-              pythonEnv
+            nativeBuildInputs = with pkgs.python313Packages; [
+              hatchling
             ];
 
-            buildPhase = ''
-              mkdir -p $out/share/poor-tools-web
+            propagatedBuildInputs = with pkgs.python313Packages; [
+              fastapi
+              uvicorn
+            ];
 
-              # Copy all source files
-              cp -r * $out/share/poor-tools-web/
+            # Sanity check import at build time
+            pythonImportsCheck = [ "main" ];
 
-              # Copy hidden files if they exist
-              cp -r .github $out/share/poor-tools-web/ 2>/dev/null || true
-              cp .gitignore $out/share/poor-tools-web/ 2>/dev/null || true
-              cp .hadolint.yaml $out/share/poor-tools-web/ 2>/dev/null || true
-
-              # Create wrapper script
+            # Create wrapper script during install
+            postInstall = ''
               mkdir -p $out/bin
               cat > $out/bin/poor-tools-web << EOF
               #!/usr/bin/env bash
-              cd $out/share/poor-tools-web
+              cd $out/${pkgs.python313.sitePackages}
               export BIND_HOST=\''${BIND_HOST:-0.0.0.0}
               export BIND_PORT=\''${BIND_PORT:-7667}
               exec ${pythonEnv}/bin/python main.py "\$@"
               EOF
               chmod +x $out/bin/poor-tools-web
             '';
-
-            installPhase = "true";
 
             meta = with pkgs.lib; {
               description = "Web installer for poor-tools command-line utilities";
@@ -191,7 +182,7 @@
 
             config = {
               Cmd = [ "${poor-tools-web}/bin/poor-tools-web" ];
-              WorkingDir = "${poor-tools-web}/share/poor-tools-web";
+              WorkingDir = "${poor-tools-web}/${pkgs.python313.sitePackages}";
               ExposedPorts."7667/tcp" = { };
               Env = [
                 "BIND_HOST=0.0.0.0"
@@ -201,7 +192,7 @@
               Healthcheck = {
                 Test = [
                   "CMD-SHELL"
-                  "curl -f http://localhost:7667/health || exit 1"
+                  "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7667/health').read()\" || exit 1"
                 ];
                 Interval = 30000000000; # 30s in nanoseconds
                 Timeout = 3000000000; # 3s
@@ -210,40 +201,62 @@
               };
             };
           };
-        in
-        {
-          pre-commit = {
-            check.enable = true;
-            settings = {
-              src = ./.;
-              hooks = {
-                # Python formatting and linting
-                ruff = {
-                  enable = true;
-                };
-                ruff-format = {
-                  enable = true;
-                };
 
-                # Type checking
-                mypy = {
-                  enable = true;
-                  files = "main\\.py$";
-                };
+          pre-commit-check = pre-commit-hooks.lib.${system}.run {
+            src = ./.;
+            hooks = {
+              # Python formatting and linting
+              ruff = {
+                enable = true;
+              };
+              ruff-format = {
+                enable = true;
+              };
 
-                # Shellcheck
-                shellcheck = {
-                  enable = true;
-                };
+              # Type checking
+              mypy = {
+                enable = true;
+                files = "main\\.py$";
+              };
 
-                # Nix formatting
-                nixfmt-rfc-style = {
-                  enable = true;
-                };
+              # Tests
+              pytest = {
+                enable = true;
+                name = "pytest";
+                entry = "${pythonEnv}/bin/python -m pytest tests/ -v";
+                language = "system";
+                files = "\\.py$";
+                pass_filenames = false;
+              };
+
+              # Docker linting
+              hadolint = {
+                enable = true;
+              };
+
+              # Shell linting
+              shellcheck = {
+                enable = true;
+              };
+
+              # Nix formatting
+              nixfmt-rfc-style = {
+                enable = true;
+              };
+
+              # Trailing whitespace
+              trailing-whitespace = {
+                enable = true;
+              };
+
+              # End of file newline
+              end-of-file-fixer = {
+                enable = true;
               };
             };
           };
-
+        in
+        {
           packages = {
             default = poor-tools-web;
             poor-tools-web = poor-tools-web;
@@ -256,23 +269,25 @@
           };
 
           devShells.default = pkgs.mkShell {
-            buildInputs = [
-              pythonEnv
-              pkgs.ruff
-              pkgs.uv
-              pkgs.hadolint
-              pkgs.nixfmt-rfc-style
-              pkgs.statix
-            ]
-            ++ (with python.pkgs; [
-              pytest
-              pytest-asyncio
-              httpx
-              mypy
-            ]);
+            buildInputs =
+              with pkgs;
+              [
+                pythonEnv
+                python313Packages.pytest
+                python313Packages.pytest-asyncio
+                python313Packages.httpx
+                python313Packages.mypy
+                ruff
+                uv
+                hadolint
+                shellcheck
+                nixfmt-rfc-style
+                statix
+              ]
+              ++ pre-commit-check.enabledPackages;
 
             shellHook = ''
-              ${config.pre-commit.installationScript}
+              ${pre-commit-check.shellHook}
               echo "🔧 poor-tools web installer dev environment"
               echo "==========================================="
               echo "Python: $(python --version)"
