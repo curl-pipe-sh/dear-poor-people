@@ -83,10 +83,13 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 ### Nix Integration
 
-- **Flake**: Use flakes for reproducible builds
-- **Dev shell**: Include all development dependencies
-- **NixOS module**: Provide systemd service configuration
+- **Flake**: Uses flake-parts for clean, modular structure
+- **Dev shell**: Include all development dependencies with pre-commit hooks
+- **NixOS module**: Provide systemd service configuration with security hardening
+- **Package**: Self-contained package with Python dependencies
+- **Docker**: Automated container image generation
 - **Security**: Use proper systemd security features
+- **Pre-commit**: Native pre-commit-hooks.nix integration with comprehensive checks
 
 ### Git & CI
 

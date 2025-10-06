@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -11,162 +11,27 @@
   };
 
   outputs =
-    {
+    inputs@{
+      self,
+      flake-parts,
       nixpkgs,
-      flake-utils,
       pre-commit-hooks,
       ...
     }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
 
-        python = pkgs.python313;
+      imports = [
+        inputs.pre-commit-hooks.flakeModule
+      ];
 
-        pythonEnv = python.withPackages (ps: with ps; [
-          fastapi
-          uvicorn
-        ]);
-
-        pre-commit-check = pre-commit-hooks.lib.${system}.run {
-          src = ./.;
-          hooks = {
-            # Python formatting and linting
-            ruff = {
-              enable = true;
-            };
-            ruff-format = {
-              enable = true;
-            };
-
-            # Import sorting
-            ruff-import-sort = {
-              enable = true;
-              name = "ruff import sort";
-              entry = "${pkgs.ruff}/bin/ruff check --select I --fix";
-              language = "system";
-              files = "\\.py$";
-            };
-
-            # Type checking
-            mypy = {
-              enable = true;
-              files = "main\\.py$";
-            };
-
-            # Tests
-            pytest = {
-              enable = true;
-              name = "pytest";
-              entry = "${pythonEnv}/bin/python -m pytest tests/ -v";
-              language = "system";
-              files = "\\.py$";
-              pass_filenames = false;
-            };
-
-            # Docker linting
-            hadolint = {
-              enable = true;
-            };
-
-            # Trailing whitespace
-            trailing-whitespace = {
-              enable = true;
-              name = "trailing-whitespace";
-              entry = "${pkgs.python3}/bin/python -m pre_commit_hooks.trailing_whitespace_fixer";
-              language = "system";
-            };
-
-            # End of file newline
-            end-of-file-fixer = {
-              enable = true;
-              name = "end-of-file-fixer";
-              entry = "${pkgs.python3}/bin/python -m pre_commit_hooks.end_of_file_fixer";
-              language = "system";
-            };
-          };
-        };
-
-        poor-tools-web = pkgs.stdenv.mkDerivation {
-          pname = "poor-tools-web";
-          version = "0.1.0";
-
-          # Include all files and directories explicitly
-          src = pkgs.lib.cleanSourceWith {
-            src = ./.;
-            filter = path: type:
-              let
-                baseName = baseNameOf path;
-              in
-                # Include everything except build artifacts and .git
-                !(pkgs.lib.hasInfix "result" path) &&
-                !(pkgs.lib.hasInfix ".git" path) &&
-                !(pkgs.lib.hasInfix "__pycache__" path) &&
-                !(pkgs.lib.hasInfix ".pytest_cache" path) &&
-                !(pkgs.lib.hasInfix ".venv" path) &&
-                !(pkgs.lib.hasInfix ".ruff_cache" path) &&
-                !(pkgs.lib.hasInfix ".mypy_cache" path);
-          };
-
-          nativeBuildInputs = [
-            pythonEnv
-          ];
-
-          buildPhase = ''
-            mkdir -p $out/share/poor-tools-web
-
-            # Copy all source files
-            cp -r * $out/share/poor-tools-web/
-
-            # Create wrapper script
-            mkdir -p $out/bin
-
-            cat > $out/bin/poor-tools-web << EOF
-            #!/usr/bin/env bash
-            cd $out/share/poor-tools-web
-            export BIND_HOST=\''${BIND_HOST:-0.0.0.0}
-            export BIND_PORT=\''${BIND_PORT:-7667}
-            exec ${pythonEnv}/bin/python main.py "\$@"
-            EOF
-
-            chmod +x $out/bin/poor-tools-web
-          '';
-
-          installPhase = "true"; # Already done in buildPhase
-        };
-      in
-      {
-        packages = {
-          default = poor-tools-web;
-          poor-tools-web = poor-tools-web;
-        };
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            pythonEnv
-            pkgs.ruff
-            pkgs.uv
-            pkgs.hadolint
-            pre-commit-check.enabledPackages
-          ] ++ (with python.pkgs; [
-            pytest
-            pytest-asyncio
-            httpx
-            mypy
-          ]);
-
-          shellHook = ''
-            ${pre-commit-check.shellHook}
-            echo "poor-tools web installer dev environment"
-            echo "Run: uvicorn main:app --reload --host 127.0.0.1 --port 7667"
-            echo "Or: python main.py"
-            echo ""
-            echo "Pre-commit hooks are installed and will run on commit."
-            echo "To run manually: pre-commit run --all-files"
-          '';
-        };
-
+      flake = {
+        # System-agnostic NixOS module, available as `nixosModules.default`
         nixosModules.default =
           {
             config,
@@ -174,44 +39,45 @@
             pkgs,
             ...
           }:
-          with lib;
           let
             cfg = config.services.poor-tools-web;
+            pkg = self.packages.${config.nixpkgs.hostPlatform.system}.poor-tools-web;
           in
           {
             options.services.poor-tools-web = {
-              enable = mkEnableOption "poor-tools web installer";
+              enable = lib.mkEnableOption "poor-tools web installer";
 
-              bindPort = mkOption {
-                type = types.int;
+              bindPort = lib.mkOption {
+                type = lib.types.port;
                 default = 7667;
                 description = "Port to listen on";
               };
 
-              bindHost = mkOption {
-                type = types.str;
+              bindHost = lib.mkOption {
+                type = lib.types.str;
                 default = "127.0.0.1";
                 description = "Host to bind to";
               };
             };
 
-            config = mkIf cfg.enable {
+            config = lib.mkIf cfg.enable {
               systemd.services.poor-tools-web = {
                 description = "poor-tools web installer";
                 wantedBy = [ "multi-user.target" ];
                 after = [ "network.target" ];
 
+                environment = {
+                  BIND_HOST = cfg.bindHost;
+                  BIND_PORT = toString cfg.bindPort;
+                };
+
                 serviceConfig = {
                   Type = "exec";
-                  ExecStart = "${poor-tools-web}/bin/poor-tools-web";
-                  Environment = [
-                    "BIND_HOST=${cfg.bindHost}"
-                    "BIND_PORT=${toString cfg.bindPort}"
-                  ];
+                  ExecStart = "${pkg}/bin/poor-tools-web";
                   Restart = "always";
                   RestartSec = 5;
 
-                  # Security
+                  # Security hardening
                   DynamicUser = true;
                   NoNewPrivileges = true;
                   ProtectSystem = "strict";
@@ -234,6 +100,191 @@
               };
             };
           };
-      }
-    );
+      };
+
+      perSystem =
+        {
+          self',
+          config,
+          pkgs,
+          system,
+          ...
+        }:
+        let
+          python = pkgs.python313;
+
+          pythonEnv = python.withPackages (
+            ps: with ps; [
+              fastapi
+              uvicorn
+            ]
+          );
+
+          cleanSrc = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter =
+              path: type:
+              pkgs.lib.cleanSourceFilter path type
+              && !(pkgs.lib.hasInfix "result" path)
+              && !(pkgs.lib.hasInfix "__pycache__" path)
+              && !(pkgs.lib.hasInfix ".pytest_cache" path)
+              && !(pkgs.lib.hasInfix ".venv" path)
+              && !(pkgs.lib.hasInfix ".ruff_cache" path)
+              && !(pkgs.lib.hasInfix ".mypy_cache" path);
+          };
+
+          poor-tools-web = pkgs.stdenv.mkDerivation {
+            pname = "poor-tools-web";
+            version = "0.1.0";
+            src = cleanSrc;
+
+            nativeBuildInputs = [
+              pythonEnv
+            ];
+
+            buildPhase = ''
+              mkdir -p $out/share/poor-tools-web
+
+              # Copy all source files
+              cp -r * $out/share/poor-tools-web/
+
+              # Copy hidden files if they exist
+              cp -r .github $out/share/poor-tools-web/ 2>/dev/null || true
+              cp .gitignore $out/share/poor-tools-web/ 2>/dev/null || true
+              cp .hadolint.yaml $out/share/poor-tools-web/ 2>/dev/null || true
+
+              # Create wrapper script
+              mkdir -p $out/bin
+              cat > $out/bin/poor-tools-web << EOF
+              #!/usr/bin/env bash
+              cd $out/share/poor-tools-web
+              export BIND_HOST=\''${BIND_HOST:-0.0.0.0}
+              export BIND_PORT=\''${BIND_PORT:-7667}
+              exec ${pythonEnv}/bin/python main.py "\$@"
+              EOF
+              chmod +x $out/bin/poor-tools-web
+            '';
+
+            installPhase = "true";
+
+            meta = with pkgs.lib; {
+              description = "Web installer for poor-tools command-line utilities";
+              homepage = "https://github.com/pschmitt/poor-tools";
+              license = licenses.gpl3Only;
+              maintainers = [ ];
+              platforms = platforms.all;
+              mainProgram = "poor-tools-web";
+            };
+          };
+
+          dockerImage = pkgs.dockerTools.buildLayeredImage {
+            name = "poor-tools-web";
+            tag = "latest";
+
+            contents = [
+              pythonEnv
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.curl
+              pkgs.wget
+            ];
+
+            config = {
+              Cmd = [ "${poor-tools-web}/bin/poor-tools-web" ];
+              WorkingDir = "${poor-tools-web}/share/poor-tools-web";
+              ExposedPorts."7667/tcp" = { };
+              Env = [
+                "BIND_HOST=0.0.0.0"
+                "BIND_PORT=7667"
+                "PYTHONUNBUFFERED=1"
+              ];
+              Healthcheck = {
+                Test = [
+                  "CMD-SHELL"
+                  "curl -f http://localhost:7667/health || exit 1"
+                ];
+                Interval = 30000000000; # 30s in nanoseconds
+                Timeout = 3000000000; # 3s
+                StartPeriod = 5000000000; # 5s
+                Retries = 3;
+              };
+            };
+          };
+        in
+        {
+          pre-commit = {
+            check.enable = true;
+            settings = {
+              src = ./.;
+              hooks = {
+                # Python formatting and linting
+                ruff = {
+                  enable = true;
+                };
+                ruff-format = {
+                  enable = true;
+                };
+
+                # Type checking
+                mypy = {
+                  enable = true;
+                  files = "main\\.py$";
+                };
+
+                # Nix formatting
+                nixfmt-rfc-style = {
+                  enable = true;
+                };
+              };
+            };
+          };
+
+          packages = {
+            default = poor-tools-web;
+            poor-tools-web = poor-tools-web;
+            docker = dockerImage;
+          };
+
+          apps.default = {
+            type = "app";
+            program = "${self'.packages.poor-tools-web}/bin/poor-tools-web";
+          };
+
+          devShells.default = pkgs.mkShell {
+            buildInputs = [
+              pythonEnv
+              pkgs.ruff
+              pkgs.uv
+              pkgs.hadolint
+              pkgs.nixfmt-rfc-style
+              pkgs.statix
+            ]
+            ++ (with python.pkgs; [
+              pytest
+              pytest-asyncio
+              httpx
+              mypy
+            ]);
+
+            shellHook = ''
+              ${config.pre-commit.installationScript}
+              echo "🔧 poor-tools web installer dev environment"
+              echo "==========================================="
+              echo "Python: $(python --version)"
+              echo "FastAPI available with uvicorn"
+              echo ""
+              echo "Commands:"
+              echo "  python main.py                           # Start server"
+              echo "  uvicorn main:app --reload --port 7667    # Development server"
+              echo "  uv run pytest tests/ -v                  # Run tests"
+              echo "  ruff check . && ruff format .             # Format code"
+              echo "  mypy main.py                             # Type check"
+              echo "  nix build '.#docker'                     # Build Docker image"
+              echo ""
+              echo "Pre-commit hooks are installed and will run on commit."
+              echo "To run manually: pre-commit run --all-files"
+            '';
+          };
+        };
+    };
 }
