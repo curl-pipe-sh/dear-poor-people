@@ -13,10 +13,10 @@ The web installer serves scripts via HTTP with optional templating support for e
 
 ```bash
 # Docker
-docker run -p 7667:7667 ghcr.io/pschmitt/poor-tools
+docker run -p 7667:7667 ghcr.io/curl-pipe-sh/poor-tools
 
 # Nix
-nix run github:pschmitt/poor-tools#poor-tools-web
+nix run github:curl-pipe-sh/poor-tools#poor-tools-web
 
 # Development
 uv sync --all-extras --dev

@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# description: tiny curl-ish fetcher using openssl s_client (HTTPS only)
+# icon: mdi:lock-outline
 # shellcheck disable=SC3045,SC3052 # Uses bash-specific features for advanced functionality
 # curl-ossl — tiny curl-ish fetcher using openssl s_client (binary-safe)
 # Features: HTTPS only, HTTP/1.1, redirects, -o, -I, -s/-S, -f, -4/-6, -v, --max-redirs, dechunk

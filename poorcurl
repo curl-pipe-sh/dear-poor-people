@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# description: curl, but uses wget behind the scenes
+# icon: mdi:download
 # curl-like wrapper using wget
 # Supports a practical subset of curl flags:
 #  -s, -S, -L, -o/-O, -d, -H, -I, -f, -k, -A, -u, -m/--max-time,

@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# description: minimal interactive TTY bridge (like socat)
+# icon: mdi:transit-connection-variant
 # poorcat.sh — minimal interactive TTY bridge (like socat)
 
 if [ $# -lt 1 ]

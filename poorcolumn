@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# description: minimal column(1) clone with basic -s/-t support
+# icon: mdi:table
 # poorcolumn — minimal column(1) clone with basic -s/-t support
 
 set -eu

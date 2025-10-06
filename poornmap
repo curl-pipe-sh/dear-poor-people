@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# description: nmap-like port scanner using nc
+# icon: mdi:network-outline
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating

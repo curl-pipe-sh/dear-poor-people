@@ -2,12 +2,11 @@
 
 import argparse
 import os
-import re
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 app = FastAPI(
     title="poor-tools Web Installer",
@@ -83,6 +82,60 @@ def discover_tools() -> list[str]:
     return sorted(tools)
 
 
+def get_tool_description(tool_name: str) -> str:
+    """Extract description from a tool script file."""
+    file_path = SCRIPT_DIR / tool_name
+    if not file_path.exists():
+        return ""
+
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f):
+                # Only check first 10 lines for performance
+                if line_num >= 10:
+                    break
+
+                line = line.strip()
+                if line.startswith("# description:"):
+                    return line[len("# description:") :].strip()
+
+                # Also check for the format "# toolname — description"
+                if line.startswith(f"# {tool_name} —") or line.startswith(
+                    f"# {tool_name} -"
+                ):
+                    return line.split("—", 1)[-1].split("-", 1)[-1].strip()
+    except Exception:
+        pass
+
+    return ""
+
+
+def get_tool_icon(tool_name: str) -> str:
+    """Extract icon from a tool script file."""
+    file_path = SCRIPT_DIR / tool_name
+    if not file_path.exists():
+        return "mdi:wrench"  # Default icon
+
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f):
+                # Only check first 10 lines for performance
+                if line_num >= 10:
+                    break
+
+                line = line.strip()
+                if line.startswith("# icon:"):
+                    icon = line[len("# icon:") :].strip()
+                    # Ensure it starts with mdi: if not already specified
+                    if not icon.startswith("mdi:"):
+                        icon = f"mdi:{icon}"
+                    return icon
+    except Exception:
+        pass
+
+    return "mdi:wrench"  # Default icon
+
+
 def normalize_tool_name(tool_name: str) -> str | None:
     """Normalize tool name and return the canonical script name."""
     discovered_tools = discover_tools()
@@ -121,6 +174,47 @@ def get_server_url(request: Request) -> str:
         scheme = "https"
 
     return f"{scheme}://{host}"
+
+
+def is_cli_user_agent(user_agent: str) -> bool:
+    """Check if the user agent is a CLI tool like curl, wget, etc."""
+    if not user_agent:
+        return True  # Default to CLI if no user agent
+
+    cli_agents = [
+        "curl/",
+        "wget/",
+        "httpie/",
+        "lwp-request",
+        "python-requests/",
+        "python-urllib",
+        "go-http-client",
+        "rust-hyper",
+        "libcurl",
+    ]
+
+    user_agent_lower = user_agent.lower()
+    return any(agent in user_agent_lower for agent in cli_agents)
+
+
+def load_template(template_name: str) -> str:
+    """Load a template file from the assets directory."""
+    template_path = Path(__file__).parent / "assets" / "templates" / template_name
+    if not template_path.exists():
+        raise HTTPException(
+            status_code=500, detail=f"Template '{template_name}' not found"
+        )
+    return template_path.read_text(encoding="utf-8")
+
+
+def load_static_file(file_name: str) -> str:
+    """Load a static file from the assets directory."""
+    static_path = Path(__file__).parent / "assets" / "static" / file_name
+    if not static_path.exists():
+        raise HTTPException(
+            status_code=500, detail=f"Static file '{file_name}' not found"
+        )
+    return static_path.read_text(encoding="utf-8")
 
 
 def generate_tool_installer(
@@ -177,71 +271,75 @@ def process_includes(content: str, base_dir: Path) -> str:
     - '. lib/echo.sh # <TEMPLATE>' with the actual file content (POSIX format)
     """
     lines = content.split("\n")
-    processed_lines = []
+    result_lines = []
 
     for line in lines:
-        # Match old pattern: # INCLUDE_FILE: lib/echo.sh
-        include_match = re.match(r"^\s*#\s*INCLUDE_FILE:\s*(.+?)\s*$", line)
-        # Match new pattern: source lib/echo.sh # <TEMPLATE>
-        source_match = re.match(r"^\s*source\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
-        # Match POSIX pattern: . lib/echo.sh # <TEMPLATE>
-        dot_match = re.match(r"^\s*\.\s+(.+?)\s*#\s*<TEMPLATE>\s*$", line)
+        # Check for old-style include directive
+        if line.strip().startswith("# INCLUDE_FILE:"):
+            include_path = line.strip()[len("# INCLUDE_FILE:") :].strip()
+            file_path = base_dir / include_path
 
-        if include_match:
-            include_path = include_match.group(1).strip()
-            include_file = base_dir / include_path
-
-            if include_file.exists():
+            if file_path.exists():
                 try:
-                    include_content = include_file.read_text(encoding="utf-8")
-                    # Add a comment showing what was included
-                    processed_lines.append(f"# BEGIN INCLUDE: {include_path}")
-                    processed_lines.append(include_content.rstrip())
-                    processed_lines.append(f"# END INCLUDE: {include_path}")
+                    include_content = file_path.read_text(encoding="utf-8")
+                    # Remove any trailing newlines and add content
+                    include_content = include_content.rstrip()
+                    if include_content:
+                        result_lines.append(include_content)
                 except Exception:
                     # If we can't read the file, keep the original line
-                    processed_lines.append(line)
+                    result_lines.append(line)
             else:
                 # If file doesn't exist, keep the original line
-                processed_lines.append(line)
-        elif source_match is not None or dot_match is not None:
-            if source_match is not None:
-                m = source_match  # re.Match[str]
-            else:
-                # dot_match must be non-None here
-                m = dot_match  # type: ignore[assignment]
-            include_path = m.group(1).strip()
-            include_file = base_dir / include_path
+                result_lines.append(line)
 
-            if include_file.exists():
+        # Check for new-style template directives
+        elif "# <TEMPLATE>" in line:
+            # Extract the part before # <TEMPLATE>
+            source_part = line.split("# <TEMPLATE>")[0].strip()
+
+            # Handle both 'source' and '.' (POSIX) variants
+            if source_part.startswith("source "):
+                include_path = source_part[len("source ") :].strip()
+            elif source_part.startswith(". "):
+                include_path = source_part[len(". ") :].strip()
+            else:
+                # Not a recognized pattern, keep original line
+                result_lines.append(line)
+                continue
+
+            file_path = base_dir / include_path
+
+            if file_path.exists():
                 try:
-                    include_content = include_file.read_text(encoding="utf-8")
-                    # Add a comment showing what was included
-                    processed_lines.append(f"# BEGIN INCLUDE: {include_path}")
-                    processed_lines.append(include_content.rstrip())
-                    processed_lines.append(f"# END INCLUDE: {include_path}")
+                    include_content = file_path.read_text(encoding="utf-8")
+                    # Remove any trailing newlines and add content
+                    include_content = include_content.rstrip()
+                    if include_content:
+                        result_lines.append(include_content)
                 except Exception:
                     # If we can't read the file, keep the original line
-                    processed_lines.append(line)
+                    result_lines.append(line)
             else:
                 # If file doesn't exist, keep the original line
-                processed_lines.append(line)
+                result_lines.append(line)
         else:
-            processed_lines.append(line)
+            # Regular line, keep as-is
+            result_lines.append(line)
 
-    return "\n".join(processed_lines)
+    return "\n".join(result_lines)
 
 
 def get_file_content(filename: str, no_templating: bool = False) -> str:
     """Get the content of a file, optionally processing includes."""
     file_path = SCRIPT_DIR / filename
-
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
 
     try:
         content = file_path.read_text(encoding="utf-8")
 
+        # Process includes if templating is enabled
         if not no_templating:
             content = process_includes(content, SCRIPT_DIR)
 
@@ -252,23 +350,28 @@ def get_file_content(filename: str, no_templating: bool = False) -> str:
         ) from e
 
 
-@app.get("/", response_class=PlainTextResponse)
+@app.get("/")
 async def get_root(request: Request, no_templating: str | None = None) -> Response:
     """Serve information about available tools and endpoints."""
     server_url = get_server_url(request)
     tools = discover_tools()
+    user_agent = request.headers.get("user-agent", "")
 
-    # Generate tool list dynamically
-    tool_links = []
-    installer_links = []
+    # If it's a CLI tool, return plain text response
+    if is_cli_user_agent(user_agent):
+        # Generate tool list dynamically
+        tool_links = []
+        installer_links = []
 
-    for tool in tools:
-        # Create display name (remove poor prefix for display if present)
-        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
-        tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
-        installer_links.append(f"- {server_url}/{display_name}/install")
+        for tool in tools:
+            # Create display name (remove poor prefix for display if present)
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
+            tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
+            installer_links.append(f"- {server_url}/{display_name}/install")
 
-    info_content = f"""# poor-tools Web Installer
+        info_content = f"""# poor-tools Web Installer
 
 Available endpoints:
 
@@ -298,9 +401,71 @@ curl -sSL {server_url}/install | sh
 All endpoints support ?no_templating=1 to disable include processing.
 """
 
-    return PlainTextResponse(
-        content=info_content, headers={"Content-Type": "text/plain; charset=utf-8"}
-    )
+        return PlainTextResponse(
+            content=info_content, headers={"Content-Type": "text/plain; charset=utf-8"}
+        )
+
+    # For web browsers, return HTML using templates
+    # Generate tools cards HTML
+    tools_cards_html = ""
+    for i, tool in enumerate(tools):
+        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+        description = get_tool_description(tool)
+        icon = get_tool_icon(tool)
+        delay = i * 100  # Stagger animations
+
+        description_html = (
+            f'<p class="tool-description">{description}</p>' if description else ""
+        )
+
+        # Generate command snippets
+        run_command = f"curl -sSL {server_url}/{display_name} | sh -s -- --help"
+        install_command = f"curl -sSL {server_url}/{display_name}/install | sh"
+
+        tools_cards_html += f"""
+        <div class="tool-card" style="animation-delay: {delay}ms">
+          <div class="tool-header">
+            <iconify-icon icon="{icon}" class="tool-icon"></iconify-icon>
+            <h3 class="tool-name">{display_name}</h3>
+          </div>
+          {description_html}
+          <div class="command-snippets">
+            <div class="command-snippet">
+              <span class="command-label">Run directly:</span>
+              <div class="command-box">
+                <pre class="command-code"><code class="language-bash">{run_command}</code></pre>
+                <button class="clipboard-btn" onclick="copyToClipboard(this, '{run_command}', 'run', '{display_name}')" title="Copy command">
+                  <iconify-icon icon="mdi:content-copy"></iconify-icon>
+                </button>
+              </div>
+            </div>
+            <div class="command-snippet">
+              <span class="command-label">Install locally:</span>
+              <div class="command-box">
+                <pre class="command-code"><code class="language-bash">{install_command}</code></pre>
+                <button class="clipboard-btn" onclick="copyToClipboard(this, '{install_command}', 'install', '{display_name}')" title="Copy command">
+                  <iconify-icon icon="mdi:content-copy"></iconify-icon>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>"""
+
+    # Generate featured commands HTML - now empty since we're removing Quick Start
+    commands_html = ""
+
+    # Load template and static files
+    template_content = load_template("index.html")
+    css_content = load_static_file("style.css")
+    js_content = load_static_file("script.js")
+
+    # Replace template variables
+    html_content = template_content.replace("{{ css_content }}", css_content)
+    html_content = html_content.replace("{{ js_content }}", js_content)
+    html_content = html_content.replace("{{ commands_html }}", commands_html)
+    html_content = html_content.replace("{{ tools_cards_html }}", tools_cards_html)
+
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/install", response_class=PlainTextResponse)

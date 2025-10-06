@@ -150,7 +150,7 @@
 
             meta = with pkgs.lib; {
               description = "Web installer for poor-tools command-line utilities";
-              homepage = "https://github.com/pschmitt/poor-tools";
+              homepage = "https://github.com/curl-pipe-sh/poor-tools";
               license = licenses.gpl3Only;
               maintainers = [ maintainers.pschmitt ];
               platforms = platforms.all;
