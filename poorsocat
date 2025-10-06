@@ -3,11 +3,41 @@
 # icon: mdi:transit-connection-variant
 # poorcat.sh — minimal interactive TTY bridge (like socat)
 
-if [ $# -lt 1 ]
-then
-  echo "Usage: $(basename "$0") DEVICE [BAUD]" >&2
-  exit 2
-fi
+usage() {
+  cat <<USAGE >&2
+Usage: $(basename "$0") DEVICE [BAUD]
+
+A minimal interactive TTY bridge for serial communication.
+
+Arguments:
+  DEVICE    Serial device (e.g., /dev/ttyUSB0, /dev/ttyACM0)
+  BAUD      Baud rate (default: 115200)
+
+Options:
+  -h, --help    Show this help message
+
+Examples:
+  $(basename "$0") /dev/ttyUSB0           # Connect to USB serial at 115200 baud
+  $(basename "$0") /dev/ttyACM0 9600      # Connect to Arduino at 9600 baud
+  $(basename "$0") /dev/ttyS0 38400       # Connect to serial port at 38400 baud
+
+Note: You may need appropriate permissions to access serial devices.
+      Try adding your user to the 'dialout' group: sudo usermod -a -G dialout \$USER
+USAGE
+}
+
+# Parse arguments
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    echo "Error: DEVICE argument required" >&2
+    usage
+    exit 2
+    ;;
+esac
 
 DEVICE="$1"
 BAUD="${2:-115200}"
