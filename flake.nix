@@ -35,7 +35,6 @@
             # Python formatting and linting
             ruff = {
               enable = true;
-              # args = [ "check" "--fix" ];
             };
             ruff-format = {
               enable = true;
