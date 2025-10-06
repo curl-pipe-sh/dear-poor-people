@@ -112,7 +112,7 @@ done
 if [ -z "$DEST" ]
 then
   if [ -n "${DEST_ENV:-}" ]
-then
+  then
     DEST="$DEST_ENV"
   else
     DEST="$HOME/.local/bin"
@@ -208,7 +208,7 @@ if [ "$UNINSTALL" = 1 ]
 then
   echo_info "Uninstalling $TOOL_NAME from $TARGET_FILE"
   if [ -f "$TARGET_FILE" ]
-then
+  then
     rm -f "$TARGET_FILE"
     echo_success "Removed $TARGET_FILE"
   else
@@ -217,9 +217,9 @@ then
 
   # Try to remove destination if --clear was specified and it's empty
   if [ "$CLEAR" = 1 ] && [ -d "$DEST" ]
-then
+  then
     if rmdir "$DEST" 2>/dev/null
-then
+    then
       echo_info "Removed empty directory: $DEST"
     fi
   fi

@@ -20,7 +20,7 @@ nix run github:pschmitt/poor-tools#poor-tools-web
 
 # Development
 uv sync --all-extras --dev
-uv run uvicorn main:app --reload --port 7667
+python main.py
 ```
 
 ### Usage

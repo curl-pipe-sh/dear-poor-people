@@ -117,46 +117,51 @@
             src = ./.;
             filter =
               path: type:
-              pkgs.lib.cleanSourceFilter path type
-              && builtins.baseNameOf path != "__pycache__"
-              && builtins.baseNameOf path != ".pytest_cache"
-              && builtins.baseNameOf path != "result"
-              && builtins.baseNameOf path != ".git"
-              && builtins.baseNameOf path != ".venv"
-              && builtins.baseNameOf path != ".ruff_cache"
-              && builtins.baseNameOf path != ".mypy_cache";
+              let
+                baseName = builtins.baseNameOf path;
+              in
+              # Include everything except build artifacts and .git
+              !(pkgs.lib.hasInfix "result" path)
+              && !(pkgs.lib.hasInfix ".git" path)
+              && !(pkgs.lib.hasInfix "__pycache__" path)
+              && !(pkgs.lib.hasInfix ".pytest_cache" path)
+              && !(pkgs.lib.hasInfix ".venv" path)
+              && !(pkgs.lib.hasInfix ".ruff_cache" path)
+              && !(pkgs.lib.hasInfix ".mypy_cache" path);
           };
 
-          poor-tools-web = pkgs.python313Packages.buildPythonPackage {
+          poor-tools-web = pkgs.stdenv.mkDerivation {
             pname = "poor-tools-web";
             version = "0.1.0";
-            pyproject = true;
+
             src = cleanSrc;
 
-            nativeBuildInputs = with pkgs.python313Packages; [
-              hatchling
+            nativeBuildInputs = [
+              pythonEnv
             ];
 
-            propagatedBuildInputs = with pkgs.python313Packages; [
-              fastapi
-              uvicorn
-            ];
+            buildPhase = ''
+              mkdir -p $out/share/poor-tools-web
 
-            # Sanity check import at build time
-            pythonImportsCheck = [ "main" ];
+              # Copy all source files
+              cp -r * $out/share/poor-tools-web/
 
-            # Create wrapper script during install
-            postInstall = ''
+              # Create simple wrapper script
               mkdir -p $out/bin
-              cat > $out/bin/poor-tools-web << EOF
+
+              cat > $out/bin/poor-tools-web << 'EOF'
               #!/usr/bin/env bash
-              cd $out/${pkgs.python313.sitePackages}
-              export BIND_HOST=\''${BIND_HOST:-0.0.0.0}
-              export BIND_PORT=\''${BIND_PORT:-7667}
-              exec ${pythonEnv}/bin/python main.py "\$@"
+              cd "$out_placeholder/share/poor-tools-web"
+              exec ${pythonEnv}/bin/python main.py "$@"
               EOF
+
+              # Replace placeholder with actual output path
+              sed -i "s|\$out_placeholder|$out|g" $out/bin/poor-tools-web
+
               chmod +x $out/bin/poor-tools-web
             '';
+
+            installPhase = "true"; # Already done in buildPhase
 
             meta = with pkgs.lib; {
               description = "Web installer for poor-tools command-line utilities";
@@ -182,7 +187,7 @@
 
             config = {
               Cmd = [ "${poor-tools-web}/bin/poor-tools-web" ];
-              WorkingDir = "${poor-tools-web}/${pkgs.python313.sitePackages}";
+              WorkingDir = "${poor-tools-web}/share/poor-tools-web";
               ExposedPorts."7667/tcp" = { };
               Env = [
                 "BIND_HOST=0.0.0.0"
@@ -282,7 +287,6 @@
                 hadolint
                 shellcheck
                 nixfmt-rfc-style
-                statix
               ]
               ++ pre-commit-check.enabledPackages;
 
