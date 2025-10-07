@@ -13,7 +13,7 @@ COMMAND=""
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/echo.sh # <TEMPLATE>
-# Source utils utilities - this line gets replaced during templating  
+# Source utils utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/utils.sh # <TEMPLATE>
 
@@ -49,7 +49,7 @@ USAGE
 send_signal() {
   PID="$1"
   SIG="$2"
-  
+
   # Send signal to the process group
   kill "-$SIG" "-$PID" 2>/dev/null || kill "-$SIG" "$PID" 2>/dev/null || true
 }
@@ -58,11 +58,11 @@ send_signal() {
 run_with_timeout() {
   TIMEOUT_VAL="$1"
   shift
-  
+
   # Start the command in background
   "$@" &
   CHILD_PID=$!
-  
+
   # Wait for timeout or command completion
   COUNT=0
   while [ "$COUNT" -lt "$TIMEOUT_VAL" ]
@@ -74,27 +74,27 @@ run_with_timeout() {
       wait "$CHILD_PID"
       return $?
     fi
-    
+
     sleep 1
     COUNT=$((COUNT + 1))
   done
-  
+
   # Timeout reached, kill the process
   send_signal "$CHILD_PID" "$SIGNAL"
-  
+
   # Give it a moment to die gracefully
   sleep 1
-  
+
   # If still running, force kill
   if kill -0 "$CHILD_PID" 2>/dev/null
   then
     send_signal "$CHILD_PID" "KILL"
     sleep 1
   fi
-  
+
   # Clean up
   wait "$CHILD_PID" 2>/dev/null || true
-  
+
   return 124  # Timeout exit code
 }
 
