@@ -540,20 +540,42 @@ handle_install_command() {
   fi
 
   # Initialize source directory and find available scripts
-  initialize_install_source_directory
+  USE_REMOTE_TOOLS=""
+  if ! initialize_install_source_directory 2>/dev/null
+  then
+    # Not in a git repo or local source directory, use remote tools only
+    USE_REMOTE_TOOLS=1
+    echo_info "No local source directory found, using remote tools from $BASE_URL"
+  fi
 
   AVAILABLE_SCRIPTS=""
-  for SCRIPT_PATH_CANDIDATE in poor*
-  do
-    if [ -f "$SCRIPT_PATH_CANDIDATE" ]
+  if [ -z "$USE_REMOTE_TOOLS" ]
+  then
+    for SCRIPT_PATH_CANDIDATE in poor*
+    do
+      if [ -f "$SCRIPT_PATH_CANDIDATE" ]
+      then
+        AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $SCRIPT_PATH_CANDIDATE"
+      fi
+    done
+  fi
+
+  # If no local tools found, try to get remote tools
+  if [ -z "$AVAILABLE_SCRIPTS" ]
+  then
+    echo_info "No local tools found, fetching tool list from remote server..."
+    REMOTE_TOOLS=$(get_remote_tools 2>/dev/null || true)
+    if [ -n "$REMOTE_TOOLS" ]
     then
-      AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $SCRIPT_PATH_CANDIDATE"
+      AVAILABLE_SCRIPTS=$(printf '%s' "$REMOTE_TOOLS" | tr '\n' ' ')
+      USE_REMOTE_TOOLS=1
+      echo_info "Found $(echo "$AVAILABLE_SCRIPTS" | wc -w) tools on remote server"
     fi
-  done
+  fi
 
   if [ -z "$AVAILABLE_SCRIPTS" ]
   then
-    echo "no tools found in current directory" >&2
+    echo_error "No tools found locally or remotely. Please check your BASE_URL: $BASE_URL"
     return 1
   fi
 
@@ -671,17 +693,32 @@ handle_install_command() {
     else
       if [ "$BASE_NAME" = "poor" ]
       then
-        if ln -sf "$INSTALL_SOURCE_DIR/$SCRIPT_PATH" "$DEST_PATH" 2>/dev/null
+        if [ -z "$USE_REMOTE_TOOLS" ] && ln -sf "$INSTALL_SOURCE_DIR/$SCRIPT_PATH" "$DEST_PATH" 2>/dev/null
         then
           echo "$SCRIPT_PATH -> $DEST_PATH"
           INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
           continue
         fi
       fi
-      apply_templating "$SCRIPT_PATH" "$DEST_PATH"
-      chmod +x "$DEST_PATH"
-      echo "$SCRIPT_PATH -> $DEST_PATH"
-      INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+      
+      # Handle remote or local tool installation
+      if [ -n "$USE_REMOTE_TOOLS" ]
+      then
+        # Download tool from remote server
+        if download_candidates "$DEST_PATH" 1 "$SCRIPT_PATH"
+        then
+          echo "$SCRIPT_PATH -> $DEST_PATH (downloaded from $BASE_URL)"
+          INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+        else
+          echo_error "Failed to download $SCRIPT_PATH from $BASE_URL"
+        fi
+      else
+        # Use local file with templating
+        apply_templating "$SCRIPT_PATH" "$DEST_PATH"
+        chmod +x "$DEST_PATH"
+        echo "$SCRIPT_PATH -> $DEST_PATH"
+        INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+      fi
     fi
   done
 
@@ -880,7 +917,11 @@ handle_uninstall_command() {
   fi
 
   # Initialize source directory and find available scripts
-  initialize_install_source_directory
+  if ! initialize_install_source_directory 2>/dev/null
+  then
+    # Not in a git repo or local source directory, use remote tools for tool names
+    echo_info "No local source directory found, using remote tools for uninstall from $BASE_URL"
+  fi
 
   AVAILABLE_SCRIPTS=""
   for SCRIPT_PATH_CANDIDATE in poor*
@@ -891,9 +932,21 @@ handle_uninstall_command() {
     fi
   done
 
+  # If no local tools found, try to get remote tools for tool name resolution
   if [ -z "$AVAILABLE_SCRIPTS" ]
   then
-    echo "no tools found in current directory" >&2
+    echo_info "No local tools found, fetching tool list from remote server for name resolution..."
+    REMOTE_TOOLS=$(get_remote_tools 2>/dev/null || true)
+    if [ -n "$REMOTE_TOOLS" ]
+    then
+      AVAILABLE_SCRIPTS=$(printf '%s' "$REMOTE_TOOLS" | tr '\n' ' ')
+      echo_info "Found $(echo "$AVAILABLE_SCRIPTS" | wc -w) tools on remote server"
+    fi
+  fi
+
+  if [ -z "$AVAILABLE_SCRIPTS" ]
+  then
+    echo_error "No tools found locally or remotely for name resolution. Please check your BASE_URL: $BASE_URL"
     return 1
   fi
 
@@ -1088,15 +1141,15 @@ get_remote_tool_version() {
   fi
 
   # Simple JSON parsing - extract version for the specific tool
-  # This is a basic implementation that works for our simple JSON structure
-  TOOL_LINE=$(printf '%s' "$JSON_DATA" | grep -F "\"name\": \"$TOOL_NAME\"" -A 5 2>/dev/null)
+  # Handle both compact and pretty JSON formats
+  TOOL_LINE=$(printf '%s' "$JSON_DATA" | grep -E "\"name\" *: *\"$TOOL_NAME\"" -A 5 2>/dev/null)
   if [ -n "$TOOL_LINE" ]
   then
-    VERSION_LINE=$(printf '%s' "$TOOL_LINE" | grep "\"version\":" | head -1)
+    VERSION_LINE=$(printf '%s' "$TOOL_LINE" | grep -E "\"version\" *:" | head -1)
     if [ -n "$VERSION_LINE" ]
     then
-      # Extract version value - handle both "version" and potential escaping
-      VERSION=$(printf '%s' "$VERSION_LINE" | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+      # Extract version value - handle both compact and pretty JSON
+      VERSION=$(printf '%s' "$VERSION_LINE" | sed 's/.*"version" *: *"\([^"]*\)".*/\1/')
       if [ -n "$VERSION" ] && [ "$VERSION" != "$VERSION_LINE" ]
       then
         printf '%s' "$VERSION"
@@ -1362,6 +1415,7 @@ EOF
 
     # Check for updates
     HAS_UPDATE=""
+    REMOTE_VERSION=""
     if [ -n "$CHECK_UPDATES" ] && [ -n "$INSTALLED" ]
     then
       LOCAL_VERSION=""
@@ -1378,6 +1432,8 @@ EOF
       then
         HAS_UPDATE=1
         UPDATE_COUNT=$((UPDATE_COUNT + 1))
+        # Store remote version for upgrade path display
+        REMOTE_VERSION=$(get_remote_tool_version "$TOOL" "$REMOTE_JSON")
       fi
     fi
 
@@ -1436,7 +1492,13 @@ EOF
 
       if [ -n "$LOCAL_VERSION" ]
       then
-        printf " [%s]" "$LOCAL_VERSION"
+        # Show upgrade path if update is available
+        if [ -n "$HAS_UPDATE" ] && [ -n "$REMOTE_VERSION" ]
+        then
+          printf " [%s -> %s]" "$LOCAL_VERSION" "$REMOTE_VERSION"
+        else
+          printf " [%s]" "$LOCAL_VERSION"
+        fi
       fi
     fi
 
@@ -1607,16 +1669,37 @@ then
     exit 0
   fi
 
+  # Parse global flags from anywhere in the command line
+  NEW_ARGS=""
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --debug)
+        DEBUG=1
+        export DEBUG  # Export for use by echo.sh functions
+        shift
+        ;;
+      --trace)
+        set -x
+        shift
+        ;;
+      *)
+        NEW_ARGS="$NEW_ARGS $1"
+        shift
+        ;;
+    esac
+  done
+
+  # Reset arguments to the filtered list
+  eval set -- "$NEW_ARGS"
+
+  if [ $# -eq 0 ]
+  then
+    usage
+    exit 0
+  fi
+
   case "$1" in
-    --debug)
-      DEBUG=1
-      export DEBUG  # Export for use by echo.sh functions
-      shift
-      ;;
-    --trace)
-      set -x
-      shift
-      ;;
     -h|--help|help)
       usage
       exit 0
