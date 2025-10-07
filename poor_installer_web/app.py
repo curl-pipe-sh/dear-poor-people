@@ -648,11 +648,58 @@ async def list_tools(request: Request) -> Response:
             }
         )
 
-    # Return simple tool list (one tool per line) for shell scripting
-    tools = discover_tools()
-    tools_list = "\n".join(sorted(tools)) + "\n"
+    # For text requests, return the same formatted plain text as CLI users get from root
+    server_url = get_server_url(request)
+    tool_names = discover_tools()
 
-    return Response(content=tools_list, media_type="text/plain; charset=utf-8")
+    # Generate tool list dynamically
+    tool_links = []
+    installer_links = []
+
+    for tool in tool_names:
+        # Create display name (remove poor prefix for display if present, except for "poor" itself)
+        if tool == "poor":
+            display_name = "poor"
+        else:
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
+        tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
+        installer_links.append(f"- {server_url}/{display_name}/install")
+
+    info_content = f"""# poor-tools Web Installer
+
+Available tools and endpoints:
+
+## Individual Tools (direct download):
+{chr(10).join(tool_links)}
+
+## Tool Installers (generates installer script):
+{chr(10).join(installer_links)}
+
+## Bundle Installer:
+- {server_url}/install (or /installer)
+
+## Usage Examples:
+
+# Install curl directly:
+curl -sSL {server_url}/curl > ~/.local/bin/poorcurl && chmod +x ~/.local/bin/poorcurl
+
+# Generate and run installer for curl:
+curl -sSL {server_url}/curl/install | sh
+
+# Install with options:
+curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin --emulate
+
+# Install all tools:
+curl -sSL {server_url}/install | sh
+
+All endpoints support ?no_templating=1 to disable include processing.
+"""
+
+    return PlainTextResponse(
+        content=info_content, headers={"Content-Type": "text/plain; charset=utf-8"}
+    )
 
 
 @app.head("/", response_class=PlainTextResponse)
@@ -759,7 +806,7 @@ async def get_installer(request: Request, no_templating: str | None = None) -> R
 # Catch-all for /install* paths
 @app.get("/favicon.ico")
 @app.head("/favicon.ico")
-async def favicon():
+async def favicon() -> Response:
     """Serve favicon.ico from static files."""
     favicon_path = Path(__file__).parent / "assets" / "static" / "favicon.png"
     if favicon_path.exists():

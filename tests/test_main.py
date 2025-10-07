@@ -249,7 +249,7 @@ def test_json_list_endpoint() -> None:
     """Test the JSON list endpoint."""
     response = client.get("/list/json")
     assert response.status_code == 200
-    assert response.headers["content-type"] == "application/json"
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
 
     data = response.json()
 
