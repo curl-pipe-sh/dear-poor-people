@@ -25,25 +25,23 @@
 
   <div class="container">
     <section class="hero">
-      <h1 class="title">poor-tools</h1>
-      <p class="tagline">Portable shell tools for when you can't install the real thing</p>
+      <div class="header-with-icon">
+        <img src="/static/favicon.png" alt="poor-tools logo" class="header-logo">
+        <div class="header-text">
+          <h1 class="title">poor-tools</h1>
+          <p class="subtitle">Portable shell tools for when you can't install the real thing</p>
 
-      <!-- Command Options Controls -->
-      <div class="controls-section">
-        <div class="controls-grid">
-          <div class="control-group">
-            <span class="control-label">Downloader:</span>
+          <!-- Compact global controls -->
+          <div class="global-controls">
             <div class="toggle-switch" data-setting="downloader">
               <button class="toggle-option active" data-value="curl">curl</button>
               <button class="toggle-option" data-value="wget">wget</button>
             </div>
-          </div>
-          <div class="control-group">
-            <span class="control-label">Protocol:</span>
-            <div class="toggle-switch" data-setting="protocol">
-              <button class="toggle-option active" data-value="https">HTTPS</button>
-              <button class="toggle-option" data-value="http">HTTP</button>
-            </div>
+            <label class="toggle-slider">
+              <input type="checkbox" class="https-checkbox" data-setting="protocol">
+              <span class="slider"></span>
+              <span class="toggle-label">HTTPS</span>
+            </label>
           </div>
         </div>
       </div>

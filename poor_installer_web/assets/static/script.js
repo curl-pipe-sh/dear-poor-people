@@ -72,7 +72,7 @@ function showSuccess(btn, actionType, toolName) {
 // Command generation and toggle functionality
 let currentSettings = {
   downloader: 'curl',
-  protocol: 'https'
+  protocol: window.location.protocol === 'https:' ? 'https' : 'http'  // Auto-detect from current page
 };
 
 function getBaseUrl() {
@@ -127,6 +127,12 @@ function updateAllCommands() {
 
 function initializeToggles() {
   const toggles = document.querySelectorAll('.toggle-switch');
+  const checkboxes = document.querySelectorAll('.https-checkbox');
+
+  // Set initial checkbox state based on detected protocol (unchecked for HTTP, checked for HTTPS)
+  checkboxes.forEach(checkbox => {
+    checkbox.checked = currentSettings.protocol === 'https';
+  });
 
   toggles.forEach(toggle => {
     const setting = toggle.dataset.setting;
@@ -146,6 +152,21 @@ function initializeToggles() {
         // Update all commands on the page
         updateAllCommands();
       });
+    });
+  });
+
+  // Handle HTTPS toggle slider
+  checkboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+      currentSettings.protocol = checkbox.checked ? 'https' : 'http';
+      
+      // Sync all checkboxes (though there should only be one global one)
+      checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+      });
+
+      // Update all commands on the page
+      updateAllCommands();
     });
   });
 }

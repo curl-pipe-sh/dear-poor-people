@@ -132,10 +132,7 @@ def extract_script_metadata(script_path: Path) -> dict[str, Any]:
             for line in f:
                 line = line.strip()
                 if line.startswith("# description:"):
-                    desc = line[13:].strip()
-                    # Remove leading colon if present
-                    if desc.startswith(":"):
-                        desc = desc[1:].strip()
+                    desc = line[len("# description:"):].strip()  # Use proper length calculation
                     metadata["description"] = desc
                 elif line.startswith("# icon:"):
                     metadata["icon"] = line[7:].strip()
@@ -208,6 +205,8 @@ def get_tool_description(tool_name: str) -> str:
     if not file_path.exists():
         return ""
 
+    fallback_description = ""
+
     try:
         with file_path.open("r", encoding="utf-8") as f:
             for line_num, line in enumerate(f):
@@ -216,18 +215,17 @@ def get_tool_description(tool_name: str) -> str:
                     break
 
                 line = line.strip()
+                # Check for explicit description line first (highest priority)
                 if line.startswith("# description:"):
                     return line[len("# description:") :].strip()
 
-                # Also check for the format "# toolname — description"
-                if line.startswith(f"# {tool_name} —") or line.startswith(
-                    f"# {tool_name} -"
-                ):
-                    return line.split("—", 1)[-1].split("-", 1)[-1].strip()
+                # Store alternative format as fallback but continue looking
+                if not fallback_description and (line.startswith(f"# {tool_name} —") or line.startswith(f"# {tool_name} -")):
+                    fallback_description = line.split("—", 1)[-1].split("-", 1)[-1].strip()
     except Exception:
         pass
 
-    return ""
+    return fallback_description
 
 
 def get_tool_icon(tool_name: str) -> str:
@@ -566,13 +564,17 @@ All endpoints support ?no_templating=1 to disable include processing.
         tools_cards_html += f"""
         <div class="tool-card" style="animation-delay: {delay}ms">
           <div class="tool-header">
-            <iconify-icon icon="{icon}" class="tool-icon"></iconify-icon>
-            <h3 class="tool-name">{display_name}</h3>
+            <div class="tool-info">
+              <iconify-icon icon="{icon}" class="tool-icon"></iconify-icon>
+              <div class="tool-text">
+                <h3 class="tool-name">{display_name}</h3>
+                {description_html}
+              </div>
+            </div>
           </div>
-          {description_html}
           <div class="command-snippets">
             <div class="command-snippet">
-              <span class="command-label">Run directly:</span>
+              <span class="command-label">Run:</span>
               <div class="command-box">
                 <pre class="command-code" data-action="run"><code class="language-bash">{run_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{run_command}', 'run', '{display_name}')" title="Copy command">
@@ -581,7 +583,7 @@ All endpoints support ?no_templating=1 to disable include processing.
               </div>
             </div>
             <div class="command-snippet">
-              <span class="command-label">Install locally:</span>
+              <span class="command-label">Install:</span>
               <div class="command-box">
                 <pre class="command-code" data-action="install"><code class="language-bash">{install_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{install_command}', 'install', '{display_name}')" title="Copy command">
