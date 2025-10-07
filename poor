@@ -41,11 +41,6 @@ Environment:
 USAGE
 }
 
-select_downloader() {
-  # shellcheck disable=SC2120  # Function doesn't use arguments in this context
-  select_downloader_impl "$@"
-}
-
 ensure_cache_dir() {
   if [ -n "${POOR_CACHE_DIR-}" ]
   then
@@ -123,8 +118,7 @@ run_downloader() {
   DEST_PATH=$2
   EXEC_FLAG=$3
 
-  # shellcheck disable=SC2119  # Function call doesn't need arguments
-  DOWNLOADER=$(select_downloader) || return 1
+  DOWNLOADER=$(select_downloader_impl) || return 1
 
   DEST_DIR=$(dirname "$DEST_PATH")
   mkdir -p "$DEST_DIR"
