@@ -806,10 +806,10 @@ EOF
       if [ -e "$DEST_PATH" ]
       then
         rm -f "$DEST_PATH"
-        echo "removed $DEST_PATH"
+        echo_info "removed $DEST_PATH"
         REMOVED_COUNT=$((REMOVED_COUNT + 1))
       else
-        echo "warning: not found $DEST_PATH" >&2
+        echo_warning "not found $DEST_PATH"
       fi
     else
       if [ "$BASE_NAME" = "poor" ]
@@ -863,7 +863,7 @@ EOF
         # Try to remove only if empty
         if ! rmdir "$TARGET_DEST" 2>/dev/null
         then
-          echo "warning: could not remove '$TARGET_DEST' (not empty)" >&2
+          echo_warning "could not remove '$TARGET_DEST' (not empty)"
           echo_info "Use --force to remove directory with remaining contents"
         else
           echo_success "Removed empty directory $TARGET_DEST"
@@ -1224,16 +1224,16 @@ handle_uninstall_command() {
     if [ -e "$DEST_PATH" ]
     then
       rm -f "$DEST_PATH"
-      echo "removed $DEST_PATH"
+      echo_info "removed $DEST_PATH"
       REMOVED_COUNT=$((REMOVED_COUNT + 1))
     else
-      echo "warning: not found $DEST_PATH" >&2
+      echo_warning "not found $DEST_PATH"
     fi
   done
 
   if [ "$REMOVED_COUNT" -eq 0 ]
   then
-    echo "nothing removed" >&2
+    echo_info "nothing removed"
   fi
 
   if [ -n "$CLEAR_DEST" ]
@@ -1248,7 +1248,7 @@ handle_uninstall_command() {
       # Try to remove only if empty
       if ! rmdir "$TARGET_DEST" 2>/dev/null
       then
-        echo "warning: could not remove '$TARGET_DEST' (not empty)" >&2
+        echo_warning "could not remove '$TARGET_DEST' (not empty)"
         echo_info "Use --force to remove directory with remaining contents"
       else
         echo_success "Removed empty directory $TARGET_DEST"
