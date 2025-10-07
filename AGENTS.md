@@ -65,6 +65,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 - **Templating**: Support `# INCLUDE_FILE: path/to/file.sh` directives
 - **Library functions**: Place reusable functions in `lib/`
+- **Library files**: Library files in `lib/` should NOT have shebangs as they are meant to be sourced, not executed
 - **Library usage**: Source shared helpers with `. lib/<file>.sh # <TEMPLATE>` so the
   web installer can inline them automatically
 - **Style**: Follow existing poor-tools style (POSIX shell where possible)
@@ -126,6 +127,20 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
   # Script entry point
   main "$@"
+  ```
+- **Library file structure**: Library files in `lib/` follow a different pattern (no shebang, no main function):
+  ```bash
+  # Library description and purpose
+  # vim: set ft=sh:
+  # shellcheck shell=sh
+
+  # Global variables (if needed)
+  VARIABLE_NAME="${VARIABLE_NAME:-default}"
+
+  # Functions
+  function_name() {
+    # Implementation
+  }
   ```
 - **Usage function**: Always define and use a `usage()` function for help output
 - **Main function**: Always wrap primary logic in a `main()` function and call `main "$@"`

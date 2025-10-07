@@ -15,6 +15,7 @@ test-cov:
 # Run linting checks
 lint:
     uv run ruff check .
+    shellcheck -x $( { find . -type f -name '*.sh' -not -path './.git/*' ; grep -rlI --max-count=1 '^#!.*sh' . --exclude-dir=.git ; } | sort -u )
 
 # Run linting with auto-fix
 lint-fix:
