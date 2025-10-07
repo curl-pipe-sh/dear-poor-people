@@ -159,7 +159,7 @@ function initializeToggles() {
   checkboxes.forEach(checkbox => {
     checkbox.addEventListener('change', () => {
       currentSettings.protocol = checkbox.checked ? 'https' : 'http';
-      
+
       // Sync all checkboxes (though there should only be one global one)
       checkboxes.forEach(cb => {
         cb.checked = checkbox.checked;

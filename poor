@@ -420,19 +420,19 @@ initialize_install_source_directory() {
 check_unmanaged_files() {
   dest_dir="$1"
   available_tools="$2"  # Space-separated list of known tools
-  
+
   if [ ! -d "$dest_dir" ]
   then
     return 0  # Directory doesn't exist, nothing to check
   fi
-  
+
   # Create a list of expected poor-tool files (including variants)
   expected_files=""
   for tool in $available_tools
   do
     # Add the tool itself
     expected_files="$expected_files $tool"
-    
+
     # Add emulated version (without poor prefix)
     case "$tool" in
       poor*)
@@ -444,7 +444,7 @@ check_unmanaged_files() {
         ;;
     esac
   done
-  
+
   # Find files that don't match any expected poor-tool
   unmanaged_files=""
   for file in "$dest_dir"/*
@@ -453,16 +453,16 @@ check_unmanaged_files() {
     then
       continue
     fi
-    
+
     filename=$(basename "$file")
-    
+
     # Skip if it's a directory
     if [ -d "$file" ]
     then
       unmanaged_files="$unmanaged_files $filename"
       continue
     fi
-    
+
     # Check if this file is in our expected list
     is_managed=0
     for expected in $expected_files
@@ -473,13 +473,13 @@ check_unmanaged_files() {
         break
       fi
     done
-    
+
     if [ "$is_managed" = 0 ]
     then
       unmanaged_files="$unmanaged_files $filename"
     fi
   done
-  
+
   if [ -n "$unmanaged_files" ]
   then
     echo_error "Found unmanaged files in $dest_dir:"
@@ -495,7 +495,7 @@ check_unmanaged_files() {
     echo_info "  3. Use a different destination directory"
     return 1
   fi
-  
+
   return 0
 }
 
@@ -602,7 +602,7 @@ handle_install_command() {
   fi
 
   # Setup destination directory
-  if [ "$UNINSTALL" = "true" ]
+  if [ -n "$UNINSTALL" ]
   then
     if [ ! -d "$TARGET_DEST" ]
     then
@@ -659,7 +659,7 @@ handle_install_command() {
       done <<EOF
 $REMOTE_TOOLS
 EOF
-      
+
       if [ -n "$FILTERED_TOOLS" ]
       then
         AVAILABLE_SCRIPTS="$FILTERED_TOOLS"
@@ -675,10 +675,10 @@ EOF
   fi
 
   # Now that we know available tools, handle clearing with safety checks
-  if [ "$CLEAR_DEST" = "1" ] && [ -d "$TARGET_DEST" ] && [ -z "$UNINSTALL" ]
+  if [ -n "$CLEAR_DEST" ] && [ -d "$TARGET_DEST" ] && [ -z "$UNINSTALL" ]
   then
     echo_info "Clearing destination directory: $TARGET_DEST"
-    
+
     # Check for unmanaged files unless --force is used
     if [ -z "$FORCE_CLEAR" ]
     then
@@ -688,7 +688,7 @@ EOF
         return 1
       fi
     fi
-    
+
     # Safe to clear now
     find "$TARGET_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
     echo_success "Cleared $TARGET_DEST"
@@ -821,7 +821,7 @@ EOF
           continue
         fi
       fi
-      
+
       # Handle remote or local tool installation
       if [ -n "$USE_REMOTE_TOOLS" ]
       then
@@ -843,7 +843,7 @@ EOF
     fi
   done
 
-  if [ "$UNINSTALL" = "true" ]
+  if [ -n "$UNINSTALL" ]
   then
     if [ "$REMOVED_COUNT" -eq 0 ]
     then
@@ -851,7 +851,7 @@ EOF
     else
       echo_success "Successfully removed $REMOVED_COUNT tool(s) from $TARGET_DEST"
     fi
-    if [ "$CLEAR_DEST" = "true" ]
+    if [ -n "$CLEAR_DEST" ]
     then
       if [ -n "$FORCE_CLEAR" ]
       then
@@ -876,7 +876,7 @@ EOF
       echo "nothing installed" >&2
     else
       echo_success "Successfully installed $INSTALLED_COUNT tool(s) to $TARGET_DEST"
-      
+
       # Check if destination is in PATH
       case ":$PATH:" in
         *":$TARGET_DEST:"*)
@@ -887,15 +887,33 @@ EOF
           echo_info "Add it with: export PATH=\"$TARGET_DEST:\$PATH\""
           ;;
       esac
-      
+
       # Show uninstall command
       echo ""
       echo_info "To uninstall, run:"
+
+      # Check if poor was installed in the destination directory
+      POOR_INSTALLED=""
+      if [ -f "$TARGET_DEST/poor" ]
+      then
+        POOR_INSTALLED="$TARGET_DEST/poor"
+      fi
+
       if [ "$TARGET_DEST" = "$HOME/.local/bin" ]
       then
-        echo "  $SCRIPT_NAME uninstall"
+        if [ -n "$POOR_INSTALLED" ]
+        then
+          echo "  $POOR_INSTALLED uninstall"
+        else
+          echo "  curl $(strip_trailing_slash "$BASE_URL") | sh -s -- uninstall"
+        fi
       else
-        echo "  $SCRIPT_NAME uninstall --dest \"$TARGET_DEST\""
+        if [ -n "$POOR_INSTALLED" ]
+        then
+          echo "  $POOR_INSTALLED uninstall --dest \"$TARGET_DEST\""
+        else
+          echo "  curl $(strip_trailing_slash "$BASE_URL") | sh -s -- uninstall --dest \"$TARGET_DEST\""
+        fi
       fi
     fi
   fi
@@ -1365,7 +1383,7 @@ get_remote_tools() {
         REMOTE_LIST=$(curl -fsSL -H "User-Agent: poor" "$LIST_URL" 2>/dev/null || curl -fsSL "$LIST_URL" 2>/dev/null)
       elif [ "$DOWNLOADER" = "wget" ]
       then
-        # Try with user-agent first, fall back to simple request  
+        # Try with user-agent first, fall back to simple request
         REMOTE_LIST=$(wget -qO- --user-agent="poor" "$LIST_URL" 2>/dev/null || wget -qO- "$LIST_URL" 2>/dev/null)
       fi
       ;;

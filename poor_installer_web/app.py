@@ -357,10 +357,10 @@ def generate_tool_installer(
         # Transform the poor script into a tool-specific installer by:
         # 1. Setting BASE_URL to the server URL
         content = content.replace("<BASE_URL>", server_url)
-        
+
         # 2. Replace the git commit SHA placeholder
         content = content.replace("<GIT_COMMIT_SHA>", f"tool-installer-{tool_name}")
-        
+
         # 3. Modify the main logic to default to installing the specific tool
         if 'PLACEHOLDER_INSTALLER' in content:
             install_wrapper = f'''# Tool-specific installer for {tool_name}
@@ -414,10 +414,10 @@ def generate_poor_installer(server_url: str, no_templating: bool = False) -> str
         # Transform the poor script into an installer by:
         # 1. Setting BASE_URL to the server URL
         content = content.replace("<BASE_URL>", server_url)
-        
+
         # 2. Replace the git commit SHA placeholder
         content = content.replace("<GIT_COMMIT_SHA>", "web-installer")
-        
+
         # 3. Modify the main logic to default to install mode
         # Find the placeholder and replace it with install mode
         if 'PLACEHOLDER_INSTALLER' in content:
@@ -683,7 +683,7 @@ async def get_install_all(
 async def list_tools(request: Request) -> Response:
     """List available tools - format depends on Accept header and User-Agent."""
     user_agent = request.headers.get("user-agent", "")
-    
+
     # Check Accept header to determine response format (flexible json detection)
     accept_header = request.headers.get("accept", "").lower()
     if "json" in accept_header:

@@ -126,11 +126,11 @@ body {
     text-align: center;
     gap: 1.5rem;
   }
-  
+
   .header-text {
     align-items: center;
   }
-  
+
   .header-logo {
     width: clamp(4rem, 20vw, 6rem);
     height: clamp(4rem, 20vw, 6rem);
