@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
 # Download utilities for poor-tools
+# shellcheck shell=sh
 
 # Select the best available downloader
 select_downloader_impl() {

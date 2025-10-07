@@ -1,11 +1,10 @@
 """Web installer for poor-tools."""
 
 import argparse
-import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -52,7 +51,7 @@ def get_default_script_dir() -> Path:
 BASE_DIR = get_default_script_dir()
 
 
-def get_git_commit_sha() -> Optional[str]:
+def get_git_commit_sha() -> str | None:
     """Get the current git commit SHA if available."""
     try:
         result = subprocess.run(
@@ -67,7 +66,7 @@ def get_git_commit_sha() -> Optional[str]:
         return None
 
 
-def get_git_short_sha() -> Optional[str]:
+def get_git_short_sha() -> str | None:
     """Get the current git commit short SHA if available."""
     try:
         result = subprocess.run(
@@ -82,7 +81,7 @@ def get_git_short_sha() -> Optional[str]:
         return None
 
 
-def get_version_from_env() -> Optional[str]:
+def get_version_from_env() -> str | None:
     """Get version from environment variable (for containers/packages)."""
     return os.environ.get("POOR_TOOLS_VERSION")
 
@@ -103,7 +102,7 @@ def get_current_version() -> str:
     return "unknown"
 
 
-def extract_script_metadata(script_path: Path) -> Dict[str, Any]:
+def extract_script_metadata(script_path: Path) -> dict[str, Any]:
     """Extract metadata from a poor-tools script."""
     metadata = {
         "name": script_path.name,
@@ -113,7 +112,7 @@ def extract_script_metadata(script_path: Path) -> Dict[str, Any]:
     }
 
     try:
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith("# description:"):
@@ -140,7 +139,7 @@ def extract_script_metadata(script_path: Path) -> Dict[str, Any]:
     return metadata
 
 
-def get_all_tools_metadata() -> List[Dict[str, Any]]:
+def get_all_tools_metadata() -> list[dict[str, Any]]:
     """Get metadata for all available poor-tools."""
     tools = []
 
@@ -151,6 +150,7 @@ def get_all_tools_metadata() -> List[Dict[str, Any]]:
             tools.append(metadata)
 
     return tools
+
 
 # Configuration that can be overridden via CLI args
 SCRIPT_DIR = BASE_DIR
@@ -660,7 +660,7 @@ curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
 
 
 @app.get("/list/json")
-async def list_tools_json(request: Request) -> Dict[str, Any]:
+async def list_tools_json(request: Request) -> dict[str, Any]:
     """List available tools in JSON format with metadata and versions."""
     server_url = get_server_url(request)
     tools = get_all_tools_metadata()
@@ -669,7 +669,7 @@ async def list_tools_json(request: Request) -> Dict[str, Any]:
         "server_url": server_url,
         "version": get_current_version(),
         "tools": tools,
-        "count": len(tools)
+        "count": len(tools),
     }
 
 

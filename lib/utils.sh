@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
 # Common utilities for poor-tools
+# shellcheck shell=sh
 
 # Check if a command exists
 has_command() {

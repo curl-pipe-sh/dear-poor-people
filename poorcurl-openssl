@@ -14,13 +14,13 @@ SCRIPT_NAME="poorcurl-openssl"
 MAX_REDIRECTS_DEFAULT=5
 
 # Boolean flags: set to "1" when enabled, otherwise unset/empty
+VERBOSE=""
 SILENT=""
 SHOW_ERROR=""
 HEAD_ONLY=""
 FAIL_ON_ERROR=""
 FORCE_V4=""
 FORCE_V6=""
-VERBOSE=""
 
 OUTFILE=""
 MAX_REDIRS="${MAX_REDIRECTS_DEFAULT}"
@@ -73,8 +73,8 @@ parse_url() {
   esac
 
   case "$REST" in
-    */*) HOSTPORT="${REST%%/*}"; PATH="/${REST#*/}" ;;
-    *)   HOSTPORT="${REST}";     PATH="/"           ;;
+    */*) HOSTPORT="${REST%%/*}"; URL_PATH="/${REST#*/}" ;;
+    *)   HOSTPORT="${REST}";     URL_PATH="/"           ;;
   esac
 
   case "$HOSTPORT" in
@@ -82,7 +82,7 @@ parse_url() {
     *)   HOST="${HOSTPORT}"; [ "$PROTO" = https ] && PORT=443 || PORT=80 ;;
   esac
 
-  printf '%s %s %s %s\n' "$PROTO" "$HOST" "$PORT" "$PATH"
+  printf '%s %s %s %s\n' "$PROTO" "$HOST" "$PORT" "$URL_PATH"
 }
 
 resolve_ip_v4() {
@@ -233,7 +233,7 @@ do
       return 0
     fi
 
-    if [ -z "$silent" ] || [ -n "$show_error" ] || [ -n "$verbose" ]
+    if [ -z "$SILENT" ] || [ -n "$SHOW_ERROR" ] || [ -n "$VERBOSE" ]
     then
       sed 's/^/openssl: /' "$errf" >&2 || true
     fi
@@ -278,7 +278,7 @@ follow() {
   while :
   do
     n=$((n+1))
-    if [ "$n" -gt "$max_redirs" ]
+    if [ "$n" -gt "$MAX_REDIRS" ]
     then
       echo "curl-ossl: too many redirects" >&2
       return 22
@@ -296,27 +296,27 @@ follow() {
 
     # Determine connect host (IP if -4/-6, else hostname)
     connect_host=
-    if [ -n "$force_v4" ]
+    if [ -n "$FORCE_V4" ]
     then
       if connect_host=$(resolve_ip_v4 "$host")
       then
         logv "resolved IPv4: $connect_host"
       else
         logv "no A record for $host"
-        if [ -z "$silent" ] && [ -n "$show_error" ]
+        if [ -z "$SILENT" ] && [ -n "$SHOW_ERROR" ]
         then
           echo "curl-ossl: could not resolve IPv4 for $host" >&2
         fi
         return 6
       fi
-    elif [ -n "$force_v6" ]
+    elif [ -n "$FORCE_V6" ]
     then
       if connect_host=$(resolve_ip_v6 "$host")
       then
         logv "resolved IPv6: $connect_host"
       else
         logv "no AAAA record for $host"
-        if [ -z "$silent" ] && [ -n "$show_error" ]
+        if [ -z "$SILENT" ] && [ -n "$SHOW_ERROR" ]
         then
           echo "curl-ossl: could not resolve IPv6 for $host" >&2
         fi
@@ -339,7 +339,7 @@ follow() {
       case "$rc" in
         6)  return 6 ;;
         *)
-          [ -z "$silent" ] && echo_error "curl-ossl: connection failed"
+          [ -z "$SILENT" ] && echo_error "curl-ossl: connection failed"
           return 1
           ;;
       esac
@@ -349,7 +349,7 @@ follow() {
     [ -z "$status" ] && status=0
     logv "HTTP status: $status"
 
-    if [ -n "$head_only" ]
+    if [ -n "$HEAD_ONLY" ]
     then
       cat "$hdrf"
       rm -f "$hdrf" "$rawf"
@@ -361,7 +361,7 @@ follow() {
       loc=$(awk 'BEGIN{IGNORECASE=1} /^Location:/{sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$hdrf" | tr -d '\r')
       if [ -z "$loc" ]
       then
-        if [ -z "$silent" ]
+        if [ -z "$SILENT" ]
         then
           echo "curl-ossl: redirect without Location" >&2
         fi
@@ -388,14 +388,14 @@ follow() {
 
     if [ -n "${outfile:-}" ]
     then
-      cat "$bodyf" >"$outfile"
+      cat "$bodyf" >"$OUTFILE"
     else
       cat "$bodyf"
     fi
 
     rm -f "$hdrf" "$bodyf"
 
-    if [ "$status" -ge 400 ] && [ -n "$fail_on_error" ]
+    if [ "$status" -ge 400 ] && [ -n "$FAIL_ON_ERROR" ]
     then
       return 22
     fi
@@ -403,10 +403,6 @@ follow() {
     return 0
   done
 }
-
-# Note: This script maintains compatibility with existing lowercase variable names
-# for the complex HTTP functions. A full refactor would update all variables
-# to UPPERCASE but would require extensive testing of the HTTP parsing logic.
 
 main() {
   # Early return for sourcing support
@@ -430,18 +426,15 @@ main() {
         ;;
       -s)
         SILENT=1
-        silent=1
         shift
         ;;
       -S)
         SHOW_ERROR=1
-        show_error=1
         shift
         ;;
       -o)
         shift
         OUTFILE="${1:-}"
-        outfile="${1:-}"
         if [ -z "${OUTFILE:-}" ]
         then
           usage
@@ -451,7 +444,6 @@ main() {
         ;;
       -I)
         HEAD_ONLY=1
-        head_only=1
         shift
         ;;
       -L)
@@ -461,7 +453,6 @@ main() {
       --max-redirs)
         shift
         MAX_REDIRS="${1:-}"
-        max_redirs="${1:-}"
         if [ -z "${MAX_REDIRS:-}" ]
         then
           usage
@@ -471,26 +462,20 @@ main() {
         ;;
       -f)
         FAIL_ON_ERROR=1
-        fail_on_error=1
         shift
         ;;
       -4)
         FORCE_V4=1
-        force_v4=1
         FORCE_V6=""
-        force_v6=""
         shift
         ;;
       -6)
         FORCE_V6=1
-        force_v6=1
         FORCE_V4=""
-        force_v4=""
         shift
         ;;
       -v|--verbose)
         VERBOSE=1
-        verbose=1
         shift
         ;;
       -h|--help)
@@ -503,7 +488,6 @@ main() {
         ;;
       *)
         URL="$1"
-        url="$1"
         shift
         break
         ;;
@@ -517,17 +501,16 @@ main() {
   fi
 
   # default to https if no scheme
-  case "$url" in
+  case "$URL" in
     http://*|https://*) : ;;
     *)
       URL="https://${URL}"
-      url="https://${url}"
       ;;
   esac
 
   # Run the main follow logic
   set +e
-  follow "$url"
+  follow "$URL"
   RC=$?
   set -e
   return "$RC"
