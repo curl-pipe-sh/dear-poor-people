@@ -10,6 +10,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 
 def pretty_json_response(content: dict[str, Any]) -> Response:
@@ -25,6 +26,11 @@ app = FastAPI(
     description="Web installer for poor-tools collection",
     version="0.1.0",
 )
+
+# Mount static files
+static_dir = Path(__file__).parent / "assets" / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 # Base directory containing the poor-tools - handle both dev and installed contexts
@@ -740,6 +746,18 @@ async def get_installer(request: Request, no_templating: str | None = None) -> R
 
 
 # Catch-all for /install* paths
+@app.get("/favicon.ico")
+@app.head("/favicon.ico")
+async def favicon():
+    """Serve favicon.ico from static files."""
+    favicon_path = Path(__file__).parent / "assets" / "static" / "favicon.png"
+    if favicon_path.exists():
+        with open(favicon_path, "rb") as f:
+            return Response(content=f.read(), media_type="image/png")
+    else:
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
+
 @app.get("/install{path:path}", response_class=PlainTextResponse)
 async def get_installer_with_path(
     request: Request, path: str, no_templating: str | None = None
