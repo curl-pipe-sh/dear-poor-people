@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
-# description: curl, but uses wget behind the scenes
-# icon: mdi:download
-# version: <GIT_COMMIT_SHA>
-# curl-like wrapper using wget
+# poorcurl — curl, but uses wget behind the scenes
 # Supports a practical subset of curl flags:
 #  -s, -S, -L, -o/-O, -d, -H, -I, -f, -k, -A, -u, -m/--max-time,
 #  --connect-timeout, --retry, -x (proxy), -w '%{http_code}'
 # Combined short flags like -sL, -sSf, -oFILE, -dDATA, -HHeader work.
+# description: curl, but uses wget behind the scenes
+# version: <GIT_COMMIT_SHA>
+# icon: mdi:download
 
 set -eu
 

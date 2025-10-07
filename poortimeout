@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
+# poortimeout — timeout implementation (like busybox timeout)
 # description: timeout implementation (like busybox timeout)
-# icon: mdi:timer-outline
 # version: <GIT_COMMIT_SHA>
+# icon: mdi:timer-outline
 
 set -eu
 

@@ -86,7 +86,10 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Script structure**: Always organize scripts with these patterns:
   ```bash
   #!/usr/bin/env sh
+  # scriptname — human-readable description
+  # Additional explanation (multiline if needed)
   # description: Brief description
+  # version: <GIT_COMMIT_SHA>
   # icon: mdi:icon-name
 
   set -eu

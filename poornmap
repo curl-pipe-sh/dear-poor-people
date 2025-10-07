@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
+# poornmap — nmap-like port scanner using nc
 # description: nmap-like port scanner using nc
-# icon: mdi:network-outline
 # version: <GIT_COMMIT_SHA>
+# icon: mdi:network-outline
 
 set -eu
 

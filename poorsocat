@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
+# poorsocat — minimal interactive TTY bridge (like socat)
 # description: minimal interactive TTY bridge (like socat)
-# icon: mdi:transit-connection-variant
 # version: <GIT_COMMIT_SHA>
-# poorcat.sh — minimal interactive TTY bridge (like socat)
+# icon: mdi:transit-connection-variant
 
 set -eu
 
