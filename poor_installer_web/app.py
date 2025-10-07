@@ -422,7 +422,9 @@ All endpoints support ?no_templating=1 to disable include processing.
         if tool == "poor":
             display_name = "poor"
         else:
-            display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
         description = get_tool_description(tool)
         icon = get_tool_icon(tool)
         delay = i * 100  # Stagger animations
@@ -510,7 +512,9 @@ async def list_tools(request: Request) -> Response:
         if tool == "poor":
             display_name = "poor"
         else:
-            display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
         tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
         installer_links.append(f"- {server_url}/{display_name}/install")
 

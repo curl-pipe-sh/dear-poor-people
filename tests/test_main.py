@@ -181,12 +181,12 @@ def test_all_tool_endpoints() -> None:
     response = client.get("/poor")
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
-    assert '<BASE_URL>' not in response.text
+    assert "<BASE_URL>" not in response.text
     assert 'DEFAULT_BASE_URL="http://testserver"' in response.text
 
     response = client.get("/poor", params={"no_templating": "1"})
     assert response.status_code == 200
-    assert '<BASE_URL>' in response.text
+    assert "<BASE_URL>" in response.text
 
 
 def test_templating_disabled() -> None:
