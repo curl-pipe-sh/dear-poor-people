@@ -43,19 +43,19 @@ def get_default_script_dir() -> Path:
         return script_dir
 
     # If we're in an installed context, look for the site-packages location
-    # The poor_installer_web module is in a subdirectory, but templates/lib are in parent
+    # The poor_installer_web module is in a subdirectory, but tools are in parent
     import poor_installer_web
 
     package_dir = Path(poor_installer_web.__file__).parent
     site_packages_dir = package_dir.parent
 
-    # Check if templates directory exists at site-packages level
-    if (site_packages_dir / "templates").exists():
+    # Check if poor script exists at site-packages level
+    if (site_packages_dir / "poor").exists():
         return site_packages_dir
 
     # Check if we're in a development context where everything is in parent directory
     parent_dir = script_dir.parent
-    if (parent_dir / "templates").exists():
+    if (parent_dir / "poor").exists():
         return parent_dir
 
     # Fallback to script directory
@@ -314,6 +314,7 @@ def is_cli_user_agent(user_agent: str) -> bool:
         "go-http-client",
         "rust-hyper",
         "libcurl",
+        "poor",  # Our custom user agent
     ]
 
     user_agent_lower = user_agent.lower()
@@ -343,36 +344,50 @@ def load_static_file(file_name: str) -> str:
 def generate_tool_installer(
     tool_name: str, server_url: str, no_templating: bool = False
 ) -> str:
-    """Generate a tool-specific installer script."""
-    template_path = SCRIPT_DIR / "templates" / "tool-installer.sh"
+    """Generate a tool-specific installer script using the poor script as base."""
+    # Use the poor script as the template but modify it for single tool installation
+    poor_script_path = SCRIPT_DIR / "poor"
 
-    if not template_path.exists():
-        raise HTTPException(status_code=404, detail="Tool installer template not found")
+    if not poor_script_path.exists():
+        raise HTTPException(status_code=404, detail="Poor script not found")
 
     try:
-        content = template_path.read_text(encoding="utf-8")
+        content = poor_script_path.read_text(encoding="utf-8")
 
-        # Replace template variables with angle bracket syntax
-        content = content.replace("<TOOL_NAME>", tool_name)
-        content = content.replace("<SERVER_URL>", server_url)
+        # Transform the poor script into a tool-specific installer by:
+        # 1. Setting BASE_URL to the server URL
+        content = content.replace("<BASE_URL>", server_url)
+        
+        # 2. Replace the git commit SHA placeholder
+        content = content.replace("<GIT_COMMIT_SHA>", f"tool-installer-{tool_name}")
+        
+        # 3. Modify the main logic to default to installing the specific tool
+        if 'PLACEHOLDER_INSTALLER' in content:
+            install_wrapper = f'''# Tool-specific installer for {tool_name}
+# Default to installing {tool_name} with safety checks
 
-        # If tool_name is "all", we need to update the tool list dynamically
-        if tool_name == "all":
-            tools = discover_tools()
-            # Filter out non-poor-tools and special files
-            tool_names = []
-            for tool in tools:
-                if tool.startswith("poor"):
-                    # Remove "poor" prefix for the tool list
-                    tool_names.append(tool[4:])
-                else:
-                    tool_names.append(tool)
+if [ $# -eq 0 ]
+then
+  # No arguments provided, default to install this tool
+  set -- "install" "{tool_name}"
+else
+  # Check if first argument is a known command
+  case "${{1:-}}" in
+    install|uninstall|list|self-update)
+      # Known commands, proceed normally
+      ;;
+    -h|--help)
+      # Help option, proceed normally
+      ;;
+    *)
+      # Unknown command or options, prepend with install and tool name
+      set -- "install" "{tool_name}" "$@"
+      ;;
+  esac
+fi
 
-            # Replace the hardcoded tool list
-            tools_str = " ".join(tool_names)
-            content = content.replace(
-                'TOOLS="nmap curl curl-openssl column socat"', f'TOOLS="{tools_str}"'
-            )
+main "$@"'''
+            content = content.replace('# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper)
 
         # Process includes if templating is enabled
         if not no_templating:
@@ -381,43 +396,78 @@ def generate_tool_installer(
         return content
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to generate installer: {str(e)}"
+            status_code=500, detail=f"Failed to generate tool installer: {str(e)}"
+        ) from e
+
+
+def generate_poor_installer(server_url: str, no_templating: bool = False) -> str:
+    """Generate the enhanced poor-tools installer script from the poor script itself."""
+    # Use the poor script as the template but modify it to be installer-focused
+    poor_script_path = SCRIPT_DIR / "poor"
+
+    if not poor_script_path.exists():
+        raise HTTPException(status_code=404, detail="Poor script not found")
+
+    try:
+        content = poor_script_path.read_text(encoding="utf-8")
+
+        # Transform the poor script into an installer by:
+        # 1. Setting BASE_URL to the server URL
+        content = content.replace("<BASE_URL>", server_url)
+        
+        # 2. Replace the git commit SHA placeholder
+        content = content.replace("<GIT_COMMIT_SHA>", "web-installer")
+        
+        # 3. Modify the main logic to default to install mode
+        # Find the placeholder and replace it with install mode
+        if 'PLACEHOLDER_INSTALLER' in content:
+            install_wrapper = '''# Web installer mode - default to install with safety checks
+if [ $# -eq 0 ]
+then
+  # No arguments provided, default to install mode
+  set -- "install"
+else
+  # Check if first argument is a known command
+  case "${1:-}" in
+    install|uninstall|list|self-update)
+      # Known commands, proceed normally
+      ;;
+    -h|--help)
+      # Help option, proceed normally
+      ;;
+    *)
+      # Unknown command or options, prepend with install
+      set -- "install" "$@"
+      ;;
+  esac
+fi
+
+main "$@"'''
+            content = content.replace('# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper)
+
+        # Process includes if templating is enabled
+        if not no_templating:
+            content = process_includes(content, SCRIPT_DIR)
+
+        return content
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate poor installer: {str(e)}"
         ) from e
 
 
 def process_includes(content: str, base_dir: Path) -> str:
-    """Process INCLUDE_FILE directives in the content.
+    """Process template directives in the content.
 
     Replaces lines like:
-    - '# INCLUDE_FILE: lib/echo.sh' with the actual file content (old format)
-    - 'source lib/echo.sh # <TEMPLATE>' with the actual file content (new format)
-    - '. lib/echo.sh # <TEMPLATE>' with the actual file content (POSIX format)
+    - '. lib/echo.sh # <TEMPLATE>' with the actual file content
     """
     lines = content.split("\n")
     result_lines = []
 
     for line in lines:
-        # Check for old-style include directive
-        if line.strip().startswith("# INCLUDE_FILE:"):
-            include_path = line.strip()[len("# INCLUDE_FILE:") :].strip()
-            file_path = base_dir / include_path
-
-            if file_path.exists():
-                try:
-                    include_content = file_path.read_text(encoding="utf-8")
-                    # Remove any trailing newlines and add content
-                    include_content = include_content.rstrip()
-                    if include_content:
-                        result_lines.append(include_content)
-                except Exception:
-                    # If we can't read the file, keep the original line
-                    result_lines.append(line)
-            else:
-                # If file doesn't exist, keep the original line
-                result_lines.append(line)
-
-        # Check for new-style template directives
-        elif "# <TEMPLATE>" in line:
+        # Check for template directives
+        if "# <TEMPLATE>" in line:
             # Extract the part before # <TEMPLATE>
             source_part = line.split("# <TEMPLATE>")[0].strip()
 
@@ -621,9 +671,9 @@ All endpoints support ?no_templating=1 to disable include processing.
 async def get_install_all(
     request: Request, no_templating: str | None = None
 ) -> Response:
-    """Generate installer script for all tools."""
+    """Generate enhanced poor-tools installer script."""
     server_url = get_server_url(request)
-    content = generate_tool_installer("all", server_url, no_templating == "1")
+    content = generate_poor_installer(server_url, no_templating == "1")
     return PlainTextResponse(
         content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
     )
@@ -631,7 +681,9 @@ async def get_install_all(
 
 @app.get("/list")
 async def list_tools(request: Request) -> Response:
-    """List available tools - format depends on Accept header."""
+    """List available tools - format depends on Accept header and User-Agent."""
+    user_agent = request.headers.get("user-agent", "")
+    
     # Check Accept header to determine response format (flexible json detection)
     accept_header = request.headers.get("accept", "").lower()
     if "json" in accept_header:
@@ -648,7 +700,13 @@ async def list_tools(request: Request) -> Response:
             }
         )
 
-    # For text requests, return the same formatted plain text as CLI users get from root
+    # For CLI tools (like curl/wget from poor script), return simple tool list
+    if is_cli_user_agent(user_agent):
+        tool_names = discover_tools()
+        tools_list = "\n".join(sorted(tool_names)) + "\n"
+        return Response(content=tools_list, media_type="text/plain; charset=utf-8")
+
+    # For browsers/test clients, return formatted output
     server_url = get_server_url(request)
     tool_names = discover_tools()
 
@@ -799,8 +857,8 @@ async def _serve_installer(
 
 @app.get("/installer", response_class=PlainTextResponse)
 async def get_installer(request: Request, no_templating: str | None = None) -> Response:
-    """Serve the poor script with install functionality."""
-    return await _serve_installer(request, no_templating)
+    """Serve the enhanced poor-tools installer script (alias for /install)."""
+    return await get_install_all(request, no_templating)
 
 
 # Catch-all for /install* paths

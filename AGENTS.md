@@ -31,8 +31,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 ├── lib/                   # Reusable shell functions
 │   ├── echo.sh           # Echo utilities
 │   └── utils.sh          # Common utilities
-├── templates/             # Template files for dynamic generation
-│   └── tool-installer.sh # Tool-specific installer template
+├── poor                   # Main script (serves as template base)
 ├── tests/                 # Test files
 │   └── test_main.py      # Test suite
 ├── pyproject.toml        # Project config
@@ -63,7 +62,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 ### Shell Script Guidelines
 
-- **Templating**: Support `# INCLUDE_FILE: path/to/file.sh` directives
+- **Templating**: Support `. lib/file.sh # <TEMPLATE>` directives
 - **Library functions**: Place reusable functions in `lib/`
 - **Library files**: Library files in `lib/` should NOT have shebangs as they are meant to be sourced, not executed
 - **Library usage**: Source shared helpers with `. lib/<file>.sh # <TEMPLATE>` so the

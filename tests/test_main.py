@@ -109,18 +109,19 @@ def test_head_root_endpoint() -> None:
 
 def test_installer_endpoints() -> None:
     """Test various installer endpoints."""
-    # /install should now use tool-installer.sh template with "all" tools
+    # /install should now serve the poor script with web installer modifications
     response = client.get("/install")
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
-    assert "all installer" in response.text
-    assert "Installing all poor-tools" in response.text
+    assert "busybox-style multiplexer for poor-tools" in response.text
+    assert "Web installer mode" in response.text
+    assert "install" in response.text
 
-    # /installer should now use poor with install command
+    # /installer should be an alias for /install
     response = client.get("/installer")
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
-    assert "poor" in response.text and "install" in response.text
+    assert "busybox-style multiplexer for poor-tools" in response.text
 
 
 def test_tool_installer_endpoints() -> None:
@@ -137,8 +138,9 @@ def test_tool_installer_endpoints() -> None:
         response = client.get(endpoint)
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/plain; charset=utf-8"
-        # Should contain the generated installer script
-        assert "installer —" in response.text
+        # Should contain the poor script with tool-specific installer modifications
+        assert "busybox-style multiplexer for poor-tools" in response.text
+        assert "Tool-specific installer for" in response.text
         assert "DEST=" in response.text
         assert "usage()" in response.text
 
@@ -202,8 +204,8 @@ def test_templating_enabled() -> None:
     """Test that templating works when enabled."""
     response = client.get("/install")
     assert response.status_code == 200
-    # With templating enabled, INCLUDE_FILE comments should be processed
-    assert "BEGIN INCLUDE:" in response.text or "has_command" in response.text
+    # With templating enabled, template directives should be processed
+    assert "has_command" in response.text
 
 
 def test_tool_aliases() -> None:

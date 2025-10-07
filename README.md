@@ -74,7 +74,7 @@ curl -sSL http://localhost:7667/curl-openssl/install | sh  # poorcurl-openssl
 curl -sSL http://localhost:7667/column/install | sh        # poorcolumn
 curl -sSL http://localhost:7667/socat/install | sh         # poorsocat
 
-# Disable templating (keeps INCLUDE_FILE comments as-is)
+# Disable templating (keeps # <TEMPLATE> comments as-is)
 curl -sSL "http://localhost:7667/curl/install?no_templating=1" | sh
 ```
 

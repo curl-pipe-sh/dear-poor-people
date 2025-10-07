@@ -267,14 +267,6 @@ find_dependencies() {
     while IFS= read -r LINE
     do
       case "$LINE" in
-        "# INCLUDE_FILE:"*)
-          INCLUDE=${LINE#\# INCLUDE_FILE:}
-          INCLUDE=${INCLUDE# }
-          if [ -n "$INCLUDE" ]
-          then
-            printf '%s\n' "$INCLUDE"
-          fi
-          ;;
         *"# <TEMPLATE>"*)
           # shellcheck disable=SC2086
           set -- $LINE
@@ -424,6 +416,89 @@ initialize_install_source_directory() {
   cd "$INSTALL_SOURCE_DIR"
 }
 
+# Check for unmanaged files in destination directory
+check_unmanaged_files() {
+  dest_dir="$1"
+  available_tools="$2"  # Space-separated list of known tools
+  
+  if [ ! -d "$dest_dir" ]
+  then
+    return 0  # Directory doesn't exist, nothing to check
+  fi
+  
+  # Create a list of expected poor-tool files (including variants)
+  expected_files=""
+  for tool in $available_tools
+  do
+    # Add the tool itself
+    expected_files="$expected_files $tool"
+    
+    # Add emulated version (without poor prefix)
+    case "$tool" in
+      poor*)
+        stripped_name="${tool#poor}"
+        if [ -n "$stripped_name" ]
+        then
+          expected_files="$expected_files $stripped_name"
+        fi
+        ;;
+    esac
+  done
+  
+  # Find files that don't match any expected poor-tool
+  unmanaged_files=""
+  for file in "$dest_dir"/*
+  do
+    if [ ! -e "$file" ]  # Handle case when glob doesn't match anything
+    then
+      continue
+    fi
+    
+    filename=$(basename "$file")
+    
+    # Skip if it's a directory
+    if [ -d "$file" ]
+    then
+      unmanaged_files="$unmanaged_files $filename"
+      continue
+    fi
+    
+    # Check if this file is in our expected list
+    is_managed=0
+    for expected in $expected_files
+    do
+      if [ "$filename" = "$expected" ]
+      then
+        is_managed=1
+        break
+      fi
+    done
+    
+    if [ "$is_managed" = 0 ]
+    then
+      unmanaged_files="$unmanaged_files $filename"
+    fi
+  done
+  
+  if [ -n "$unmanaged_files" ]
+  then
+    echo_error "Found unmanaged files in $dest_dir:"
+    for file in $unmanaged_files
+    do
+      echo "  $file"
+    done
+    echo ""
+    echo_error "Refusing to clear directory with unmanaged files."
+    echo_info "Options:"
+    echo_info "  1. Remove unmanaged files manually"
+    echo_info "  2. Use --force to force removal of all files"
+    echo_info "  3. Use a different destination directory"
+    return 1
+  fi
+  
+  return 0
+}
+
 handle_install_command() {
   shift  # remove "install" from arguments
 
@@ -432,6 +507,7 @@ handle_install_command() {
   EMULATE=""
   IGNORE_ARGS=""
   CLEAR_DEST=""
+  FORCE_CLEAR=""
   UNINSTALL=""
 
   # Parse install options
@@ -459,6 +535,10 @@ handle_install_command() {
         ;;
       --clear)
         CLEAR_DEST=1
+        shift
+        ;;
+      --force)
+        FORCE_CLEAR=1
         shift
         ;;
       --uninstall)
@@ -509,7 +589,7 @@ handle_install_command() {
     shift
   done
 
-  # Validate destination - check command line arg first, then environment variable
+  # Validate destination - check command line arg first, then environment variable, then default
   if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
   then
     TARGET_DEST="$DEST"
@@ -517,9 +597,8 @@ handle_install_command() {
 
   if [ -z "$TARGET_DEST" ]
   then
-    echo_error "destination required (--dest or DEST env var)"
-    usage_install
-    return 2
+    TARGET_DEST="$HOME/.local/bin"
+    echo_info "Using default destination: $TARGET_DEST"
   fi
 
   # Setup destination directory
@@ -532,11 +611,7 @@ handle_install_command() {
     fi
   else
     mkdir -p "$TARGET_DEST"
-    if [ "$CLEAR_DEST" = "true" ] && [ -d "$TARGET_DEST" ]
-    then
-      find "$TARGET_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-      echo "cleared $TARGET_DEST"
-    fi
+    # Defer clearing until after we know what tools are available
   fi
 
   # Initialize source directory and find available scripts
@@ -567,10 +642,56 @@ handle_install_command() {
     REMOTE_TOOLS=$(get_remote_tools 2>/dev/null || true)
     if [ -n "$REMOTE_TOOLS" ]
     then
-      AVAILABLE_SCRIPTS=$(printf '%s' "$REMOTE_TOOLS" | tr '\n' ' ')
-      USE_REMOTE_TOOLS=1
-      echo_info "Found $(echo "$AVAILABLE_SCRIPTS" | wc -w) tools on remote server"
+      # Filter out non-tool lines (comments, empty lines, etc.)
+      FILTERED_TOOLS=""
+      while IFS= read -r tool_line
+      do
+        # Skip empty lines and comments
+        if [ -n "$tool_line" ] && [ "${tool_line#\#}" = "$tool_line" ]
+        then
+          # Only include lines that look like tool names (poor* or known tool names)
+          case "$tool_line" in
+            poor*|column|curl|curl-openssl|nmap|socat|timeout)
+              FILTERED_TOOLS="$FILTERED_TOOLS $tool_line"
+              ;;
+          esac
+        fi
+      done <<EOF
+$REMOTE_TOOLS
+EOF
+      
+      if [ -n "$FILTERED_TOOLS" ]
+      then
+        AVAILABLE_SCRIPTS="$FILTERED_TOOLS"
+        USE_REMOTE_TOOLS=1
+        echo_info "Found $(echo "$AVAILABLE_SCRIPTS" | wc -w) tools on remote server"
+      else
+        echo_warning "Remote server returned data but no valid tools found"
+        echo_debug "Raw response: $REMOTE_TOOLS"
+      fi
+    else
+      echo_warning "No response from remote server"
     fi
+  fi
+
+  # Now that we know available tools, handle clearing with safety checks
+  if [ "$CLEAR_DEST" = "1" ] && [ -d "$TARGET_DEST" ] && [ -z "$UNINSTALL" ]
+  then
+    echo_info "Clearing destination directory: $TARGET_DEST"
+    
+    # Check for unmanaged files unless --force is used
+    if [ -z "$FORCE_CLEAR" ]
+    then
+      if ! check_unmanaged_files "$TARGET_DEST" "$AVAILABLE_SCRIPTS"
+      then
+        echo_error "Aborting due to unmanaged files in destination directory."
+        return 1
+      fi
+    fi
+    
+    # Safe to clear now
+    find "$TARGET_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    echo_success "Cleared $TARGET_DEST"
   fi
 
   if [ -z "$AVAILABLE_SCRIPTS" ]
@@ -727,18 +848,55 @@ handle_install_command() {
     if [ "$REMOVED_COUNT" -eq 0 ]
     then
       echo "nothing removed" >&2
+    else
+      echo_success "Successfully removed $REMOVED_COUNT tool(s) from $TARGET_DEST"
     fi
     if [ "$CLEAR_DEST" = "true" ]
     then
-      if ! rmdir "$DEST" 2>/dev/null
+      if [ -n "$FORCE_CLEAR" ]
       then
-        echo "warning: could not remove '$DEST' (not empty?)" >&2
+        # Force removal of directory and all contents
+        echo_info "Force removing directory: $TARGET_DEST"
+        rm -rf "$TARGET_DEST"
+        echo_success "Removed directory $TARGET_DEST"
+      else
+        # Try to remove only if empty
+        if ! rmdir "$TARGET_DEST" 2>/dev/null
+        then
+          echo "warning: could not remove '$TARGET_DEST' (not empty)" >&2
+          echo_info "Use --force to remove directory with remaining contents"
+        else
+          echo_success "Removed empty directory $TARGET_DEST"
+        fi
       fi
     fi
   else
     if [ "$INSTALLED_COUNT" -eq 0 ]
     then
       echo "nothing installed" >&2
+    else
+      echo_success "Successfully installed $INSTALLED_COUNT tool(s) to $TARGET_DEST"
+      
+      # Check if destination is in PATH
+      case ":$PATH:" in
+        *":$TARGET_DEST:"*)
+          echo_success "✅ $TARGET_DEST is in your PATH"
+          ;;
+        *)
+          echo_warning "⚠️  $TARGET_DEST is not in your PATH"
+          echo_info "Add it with: export PATH=\"$TARGET_DEST:\$PATH\""
+          ;;
+      esac
+      
+      # Show uninstall command
+      echo ""
+      echo_info "To uninstall, run:"
+      if [ "$TARGET_DEST" = "$HOME/.local/bin" ]
+      then
+        echo "  $SCRIPT_NAME uninstall"
+      else
+        echo "  $SCRIPT_NAME uninstall --dest \"$TARGET_DEST\""
+      fi
     fi
   fi
 }
@@ -750,9 +908,10 @@ Usage: ${SCRIPT_NAME} install [OPTIONS] [TOOL...]
 Install poor-tools into a destination directory.
 
 Options:
-  --dest DIR       Install into DIR (or set DEST environment variable)
+  --dest DIR       Install into DIR (default: ~/.local/bin)
   --emulate        Strip leading "poor" when naming installed binaries
-  --clear          Remove DEST before install. With --uninstall try removing DEST after
+  --clear          Remove DEST before install (fails if unmanaged files found)
+  --force          Force removal of DEST even with unmanaged files (use with --clear)
   --uninstall      Remove matching files instead of installing
   --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
   --skip NAME      Alias for --ignore
@@ -770,9 +929,10 @@ Usage: ${SCRIPT_NAME} uninstall [OPTIONS] [TOOL...]
 Remove poor-tools from a destination directory.
 
 Options:
-  --dest DIR       Remove from DIR (or set DEST environment variable)
+  --dest DIR       Remove from DIR (default: ~/.local/bin)
   --emulate        Strip leading "poor" when looking for installed binaries
-  --clear          Remove DEST directory after uninstall (if empty)
+  --clear          Remove DEST directory after uninstall (if empty, or --force)
+  --force          Force removal of DEST even if not empty (use with --clear)
   --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
   --skip NAME      Alias for --ignore
   -h, --help       Show this help
@@ -824,6 +984,7 @@ handle_uninstall_command() {
   EMULATE=""
   IGNORE_ARGS=""
   CLEAR_DEST=""
+  FORCE_CLEAR=""
 
   # Parse uninstall options
   while [ $# -gt 0 ]
@@ -850,6 +1011,10 @@ handle_uninstall_command() {
         ;;
       --clear)
         CLEAR_DEST=1
+        shift
+        ;;
+      --force)
+        FORCE_CLEAR=1
         shift
         ;;
       --ignore|--skip)
@@ -896,7 +1061,7 @@ handle_uninstall_command() {
     shift
   done
 
-  # Validate destination - check command line arg first, then environment variable
+  # Validate destination - check command line arg first, then environment variable, then default
   if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
   then
     TARGET_DEST="$DEST"
@@ -904,9 +1069,8 @@ handle_uninstall_command() {
 
   if [ -z "$TARGET_DEST" ]
   then
-    echo_error "destination required (--dest or DEST env var)"
-    usage_uninstall
-    return 2
+    TARGET_DEST="$HOME/.local/bin"
+    echo_info "Using default destination: $TARGET_DEST"
   fi
 
   # Check if destination exists
@@ -1068,11 +1232,21 @@ handle_uninstall_command() {
 
   if [ -n "$CLEAR_DEST" ]
   then
-    if ! rmdir "$TARGET_DEST" 2>/dev/null
+    if [ -n "$FORCE_CLEAR" ]
     then
-      echo "warning: could not remove '$TARGET_DEST' (not empty?)" >&2
+      # Force removal of directory and all contents
+      echo_info "Force removing directory: $TARGET_DEST"
+      rm -rf "$TARGET_DEST"
+      echo_success "Removed directory $TARGET_DEST"
     else
-      echo "removed directory $TARGET_DEST"
+      # Try to remove only if empty
+      if ! rmdir "$TARGET_DEST" 2>/dev/null
+      then
+        echo "warning: could not remove '$TARGET_DEST' (not empty)" >&2
+        echo_info "Use --force to remove directory with remaining contents"
+      else
+        echo_success "Removed empty directory $TARGET_DEST"
+      fi
     fi
   fi
 }
@@ -1119,7 +1293,8 @@ get_remote_tools_json() {
 
       if [ "$DOWNLOADER" = "curl" ]
       then
-        REMOTE_JSON=$(curl -fsSL "$JSON_URL" 2>/dev/null)
+        # Try with User-Agent header first, fall back to simple request
+        REMOTE_JSON=$(curl -fsSL -H "User-Agent: poor" "$JSON_URL" 2>/dev/null || curl -fsSL "$JSON_URL" 2>/dev/null)
       elif [ "$DOWNLOADER" = "wget" ]
       then
         REMOTE_JSON=$(wget -qO- "$JSON_URL" 2>/dev/null)
@@ -1186,10 +1361,12 @@ get_remote_tools() {
 
       if [ "$DOWNLOADER" = "curl" ]
       then
-        REMOTE_LIST=$(curl -fsSL "$LIST_URL" 2>/dev/null)
+        # Try with User-Agent header first, fall back to simple request
+        REMOTE_LIST=$(curl -fsSL -H "User-Agent: poor" "$LIST_URL" 2>/dev/null || curl -fsSL "$LIST_URL" 2>/dev/null)
       elif [ "$DOWNLOADER" = "wget" ]
       then
-        REMOTE_LIST=$(wget -qO- "$LIST_URL" 2>/dev/null)
+        # Try with user-agent first, fall back to simple request  
+        REMOTE_LIST=$(wget -qO- --user-agent="poor" "$LIST_URL" 2>/dev/null || wget -qO- "$LIST_URL" 2>/dev/null)
       fi
       ;;
     *)
@@ -1314,10 +1491,16 @@ handle_list_command() {
     esac
   done
 
-  # Get destination directory - check command line arg first, then environment variable
+  # Get destination directory - check command line arg first, then environment variable, then default
   if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
   then
     TARGET_DEST="$DEST"
+  fi
+
+  # Use default destination if none specified and we're checking installation status
+  if [ -z "$TARGET_DEST" ] && [ -z "$LOCAL_ONLY" ]
+  then
+    TARGET_DEST="$HOME/.local/bin"
   fi
 
   # Get remote JSON data for version checking if needed
@@ -1615,8 +1798,9 @@ resolve_invocation() {
 }
 
 DEFAULT_BASE_URL="<BASE_URL>"
-if [ "$DEFAULT_BASE_URL" = "<BASE_URL>" ]
+if [ "$DEFAULT_BASE_URL" = "<BASE_URL_PLACEHOLDER>" ]
 then
+  # Only fall back to poor.tools if the placeholder wasn't replaced
   DEFAULT_BASE_URL="https://poor.tools"
 fi
 
@@ -1841,6 +2025,13 @@ then
   exec "$SCRIPT_DIR/$TARGET_NAME" "$@"
 fi
 
+# Check for installed version in ~/.local/bin (preferred over cache)
+LOCAL_BIN_PATH="$HOME/.local/bin/$TARGET_NAME"
+if [ -f "$LOCAL_BIN_PATH" ]
+then
+  exec "$LOCAL_BIN_PATH" "$@"
+fi
+
 if command -v "$TARGET_NAME" >/dev/null 2>&1
 then
   EXEC_PATH=$(command -v "$TARGET_NAME")
@@ -1885,5 +2076,7 @@ ensure_dependencies "$CACHE_PATH"
 chmod 755 "$CACHE_PATH"
 exec "$CACHE_PATH" "$@"
 }
+
+# PLACEHOLDER_INSTALLER
 
 main "$@"

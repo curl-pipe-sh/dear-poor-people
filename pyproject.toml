@@ -27,7 +27,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
-include = ["poor*", "lib/", "templates/"]
+include = ["poor*", "lib/"]
 
 [tool.ruff]
 target-version = "py313"
