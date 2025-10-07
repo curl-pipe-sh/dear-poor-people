@@ -1,0 +1,220 @@
+#!/usr/bin/env sh
+# description: timeout implementation (like busybox timeout)
+# icon: mdi:timer-outline
+
+set -eu
+
+# Global variables
+SCRIPT_NAME="poortimeout"
+SIGNAL="TERM"
+TIMEOUT_SECS=""
+COMMAND=""
+
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+# Source utils utilities - this line gets replaced during templating  
+# shellcheck disable=SC1091  # File is included via templating
+. lib/utils.sh # <TEMPLATE>
+
+usage() {
+  cat <<USAGE >&2
+Usage: ${SCRIPT_NAME} [--debug] [--trace] [-s SIG] SECS PROG ARGS...
+
+Run PROG with ARGS, sending SIG to it if it still runs after SECS seconds.
+SIG defaults to TERM.
+
+Options:
+  --debug          Enable debug output
+  --trace          Enable shell tracing (set -x)
+  -s SIG           Signal to send (default: TERM)
+  -h, --help       Show this help message
+
+Examples:
+  ${SCRIPT_NAME} 10 sleep 20        # Kill sleep after 10 seconds
+  ${SCRIPT_NAME} -s KILL 5 ping google.com
+  ${SCRIPT_NAME} 30 wget https://example.com/largefile.zip
+
+Exit codes:
+  0       Command completed successfully
+  124     Command timed out
+  125     Invalid arguments or timeout error
+  126     Command found but not executable
+  127     Command not found
+  Other   Exit code from the command itself
+USAGE
+}
+
+# Send signal to process group
+send_signal() {
+  PID="$1"
+  SIG="$2"
+  
+  # Send signal to the process group
+  kill "-$SIG" "-$PID" 2>/dev/null || kill "-$SIG" "$PID" 2>/dev/null || true
+}
+
+# Main timeout implementation
+run_with_timeout() {
+  TIMEOUT_VAL="$1"
+  shift
+  
+  # Start the command in background
+  "$@" &
+  CHILD_PID=$!
+  
+  # Wait for timeout or command completion
+  COUNT=0
+  while [ "$COUNT" -lt "$TIMEOUT_VAL" ]
+  do
+    # Check if child process is still running
+    if ! kill -0 "$CHILD_PID" 2>/dev/null
+    then
+      # Process finished, get its exit code
+      wait "$CHILD_PID"
+      return $?
+    fi
+    
+    sleep 1
+    COUNT=$((COUNT + 1))
+  done
+  
+  # Timeout reached, kill the process
+  send_signal "$CHILD_PID" "$SIGNAL"
+  
+  # Give it a moment to die gracefully
+  sleep 1
+  
+  # If still running, force kill
+  if kill -0 "$CHILD_PID" 2>/dev/null
+  then
+    send_signal "$CHILD_PID" "KILL"
+    sleep 1
+  fi
+  
+  # Clean up
+  wait "$CHILD_PID" 2>/dev/null || true
+  
+  return 124  # Timeout exit code
+}
+
+# Parse signal name to number if needed
+normalize_signal() {
+  SIG="$1"
+  case "$SIG" in
+    HUP|1)   echo "HUP" ;;
+    INT|2)   echo "INT" ;;
+    QUIT|3)  echo "QUIT" ;;
+    KILL|9)  echo "KILL" ;;
+    TERM|15) echo "TERM" ;;
+    USR1|10) echo "USR1" ;;
+    USR2|12) echo "USR2" ;;
+    *)       echo "$SIG" ;;  # Pass through as-is
+  esac
+}
+
+main() {
+  # Early return for sourcing support
+  if [ -n "${SOURCED:-}" ]
+  then
+    return 0
+  fi
+
+  # Parse command line arguments
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --debug)
+        DEBUG=1
+        export DEBUG  # Export for use by echo.sh functions
+        shift
+        ;;
+      --trace)
+        set -x
+        shift
+        ;;
+      -h|--help)
+        usage
+        return 0
+        ;;
+      -s)
+        if [ $# -lt 2 ]
+        then
+          echo_error "Option -s requires an argument"
+          usage
+          return 125
+        fi
+        SIGNAL=$(normalize_signal "$2")
+        shift 2
+        ;;
+      -*)
+        echo_error "Unknown option: $1"
+        usage
+        return 125
+        ;;
+      *)
+        # First non-option argument should be timeout
+        if [ -z "$TIMEOUT_SECS" ]
+        then
+          TIMEOUT_SECS="$1"
+          shift
+          break
+        fi
+        ;;
+    esac
+  done
+
+  # Validate timeout argument
+  if [ -z "$TIMEOUT_SECS" ]
+  then
+    echo_error "No timeout specified"
+    usage
+    return 125
+  fi
+
+  # Check if timeout is a valid number
+  case "$TIMEOUT_SECS" in
+    ''|*[!0-9]*)
+      echo_error "Invalid timeout: $TIMEOUT_SECS (must be a positive integer)"
+      return 125
+      ;;
+  esac
+
+  if [ "$TIMEOUT_SECS" -le 0 ]
+  then
+    echo_error "Invalid timeout: $TIMEOUT_SECS (must be positive)"
+    return 125
+  fi
+
+  # Validate we have a command to run
+  if [ $# -eq 0 ]
+  then
+    echo_error "No command specified"
+    usage
+    return 125
+  fi
+
+  # Check if the command exists
+  COMMAND="$1"
+  if ! has_command "$COMMAND"
+  then
+    echo_error "Command not found: $COMMAND"
+    return 127
+  fi
+
+  # Check if command is executable (basic check)
+  if ! "$COMMAND" --help >/dev/null 2>&1 && ! "$COMMAND" -h >/dev/null 2>&1 && ! "$COMMAND" --version >/dev/null 2>&1
+  then
+    # Try to execute it to see if it exists but isn't executable
+    if ! command -v "$COMMAND" >/dev/null 2>&1
+    then
+      echo_error "Command not found: $COMMAND"
+      return 127
+    fi
+  fi
+
+  # Run the command with timeout
+  run_with_timeout "$TIMEOUT_SECS" "$@"
+}
+
+main "$@"
