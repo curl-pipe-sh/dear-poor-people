@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: nmap-like port scanner using nc
 # icon: mdi:network-outline
+# version: <GIT_COMMIT_SHA>
 
 set -eu
 
@@ -25,7 +26,7 @@ JSON_SCAN_TIME=""
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/echo.sh # <TEMPLATE>
-# Source utils utilities - this line gets replaced during templating  
+# Source utils utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/utils.sh # <TEMPLATE>
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: tiny curl-ish fetcher using openssl s_client (HTTPS only)
 # icon: mdi:lock-outline
+# version: <GIT_COMMIT_SHA>
 # shellcheck disable=SC3045,SC3052 # Uses bash-specific features for advanced functionality
 # curl-ossl — tiny curl-ish fetcher using openssl s_client (binary-safe)
 # Features: HTTPS only, HTTP/1.1, redirects, -o, -I, -s/-S, -f, -4/-6, -v, --max-redirs, dechunk
@@ -28,7 +29,7 @@ URL=""
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/echo.sh # <TEMPLATE>
-# Source utils utilities - this line gets replaced during templating  
+# Source utils utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/utils.sh # <TEMPLATE>
 
@@ -277,7 +278,11 @@ follow() {
   while :
   do
     n=$((n+1))
-    [ "$n" -le "$max_redirs" ] || { echo "curl-ossl: too many redirects" >&2; return 22; }
+    if [ "$n" -gt "$max_redirs" ]
+    then
+      echo "curl-ossl: too many redirects" >&2
+      return 22
+    fi
 
     # shellcheck disable=SC2046 # parse_url returns multiple values to assign
     set -- $(parse_url "$cur")
@@ -354,7 +359,15 @@ follow() {
     if [ "$status" -ge 300 ] && [ "$status" -lt 400 ]
     then
       loc=$(awk 'BEGIN{IGNORECASE=1} /^Location:/{sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$hdrf" | tr -d '\r')
-      [ -n "$loc" ] || { [ -z "$silent" ] && echo "curl-ossl: redirect without Location" >&2; rm -f "$hdrf" "$rawf"; return 22; }
+      if [ -z "$loc" ]
+      then
+        if [ -z "$silent" ]
+        then
+          echo "curl-ossl: redirect without Location" >&2
+        fi
+        rm -f "$hdrf" "$rawf"
+        return 22
+      fi
       newurl=$(join_location "$proto" "$host" "$port" "$path" "$loc")
       logv "redirect to $newurl"
       cur="$newurl"
@@ -396,6 +409,12 @@ follow() {
 # to UPPERCASE but would require extensive testing of the HTTP parsing logic.
 
 main() {
+  # Early return for sourcing support
+  if [ -n "${SOURCED:-}" ]
+  then
+    return 0
+  fi
+
   # Parse command line arguments and update lowercase variables for compatibility
   while [ $# -gt 0 ]
   do
@@ -500,7 +519,7 @@ main() {
   # default to https if no scheme
   case "$url" in
     http://*|https://*) : ;;
-    *) 
+    *)
       URL="https://${URL}"
       url="https://${url}"
       ;;

@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: minimal column(1) clone with basic -s/-t support
 # icon: mdi:table
+# version: <GIT_COMMIT_SHA>
 # poorcolumn — minimal column(1) clone with basic -s/-t support
 
 set -eu

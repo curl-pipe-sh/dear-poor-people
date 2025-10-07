@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: minimal interactive TTY bridge (like socat)
 # icon: mdi:transit-connection-variant
+# version: <GIT_COMMIT_SHA>
 # poorcat.sh — minimal interactive TTY bridge (like socat)
 
 set -eu
@@ -44,7 +45,7 @@ USAGE
 configure_tty() {
   DEVICE_ARG="$1"
   BAUD_ARG="$2"
-  
+
   # Configure TTY (ignore errors if unsupported)
   stty -F "$DEVICE_ARG" "$BAUD_ARG" -echo -icanon 2>/dev/null || \
   stty "$BAUD_ARG" -echo -icanon 2>/dev/null < "$DEVICE_ARG" || true
@@ -53,7 +54,7 @@ configure_tty() {
 # Start background reader process
 start_reader() {
   DEVICE_ARG="$1"
-  
+
   # Start background reader
   cat < "$DEVICE_ARG" &
   READER_PID=$!
@@ -70,7 +71,7 @@ cleanup() {
 # Main communication loop
 communication_loop() {
   DEVICE_ARG="$1"
-  
+
   # Main loop: read from stdin, write to device
   while IFS= read -r LINE
   do

@@ -55,13 +55,17 @@ clean:
     find . -type d -name ".mypy_cache" -exec rm -rf {} +
     find . -type d -name ".ruff_cache" -exec rm -rf {} +
 
+trim:
+    git ls-files | xargs --verbose sed -r -i 's#[[:space:]]+$##'
+
 # Run pre-commit hooks on all files
 pre-commit:
     uv run pre-commit run --all-files
 
 # Build Docker image
 docker-build tag="poor-tools":
-    docker build -t {{ tag }} .
+    @GIT_SHA=$(git rev-parse --short=8 HEAD 2>/dev/null || echo "unknown"); \
+    docker build --build-arg GIT_COMMIT_SHA="$GIT_SHA" -t {{ tag }} .
 
 # Run Docker container
 docker-run tag="poor-tools" port="7667":

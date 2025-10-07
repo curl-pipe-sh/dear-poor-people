@@ -13,7 +13,7 @@ function copyToClipboard(btn, command, actionType, toolName) {
   const commandBox = btn.closest('.command-box');
   const codeElement = commandBox.querySelector('code');
   const commandText = codeElement ? codeElement.textContent.trim() : command;
-  
+
   // Try multiple clipboard methods for better mobile support
   if (navigator.clipboard && navigator.clipboard.writeText) {
     // Modern Clipboard API
@@ -37,12 +37,12 @@ function fallbackCopyToClipboard(text, btn, actionType, toolName) {
   textArea.style.left = '-999999px';
   textArea.style.top = '-999999px';
   document.body.appendChild(textArea);
-  
+
   try {
     textArea.focus();
     textArea.select();
     textArea.setSelectionRange(0, 99999); // For mobile devices
-    
+
     const successful = document.execCommand('copy');
     if (successful) {
       showSuccess(btn, actionType, toolName);
@@ -62,7 +62,7 @@ function showSuccess(btn, actionType, toolName) {
   btn.innerHTML = '<iconify-icon icon="mdi:check"></iconify-icon>';
   btn.classList.add('success');
   showNotification(`📋 Copied ${actionType} command for ${toolName}`);
-  
+
   setTimeout(() => {
     btn.innerHTML = originalIcon;
     btn.classList.remove('success');
@@ -86,7 +86,7 @@ function getBaseUrl() {
 function generateCommand(toolName, action) {
   const baseUrl = getBaseUrl();
   const downloader = currentSettings.downloader;
-  
+
   if (action === 'run') {
     if (downloader === 'curl') {
       return `curl -sSL ${baseUrl}/${toolName} | sh -s -- --help`;
@@ -105,12 +105,12 @@ function generateCommand(toolName, action) {
 
 function updateAllCommands() {
   const toolCards = document.querySelectorAll('.tool-card');
-  
+
   toolCards.forEach(card => {
     const toolName = card.querySelector('.tool-name').textContent.trim();
     const runCommand = card.querySelector('[data-action="run"] code');
     const installCommand = card.querySelector('[data-action="install"] code');
-    
+
     if (runCommand) {
       runCommand.textContent = generateCommand(toolName, 'run');
     }
@@ -118,7 +118,7 @@ function updateAllCommands() {
       installCommand.textContent = generateCommand(toolName, 'install');
     }
   });
-  
+
   // Re-highlight syntax
   if (window.hljs) {
     hljs.highlightAll();
@@ -127,22 +127,22 @@ function updateAllCommands() {
 
 function initializeToggles() {
   const toggles = document.querySelectorAll('.toggle-switch');
-  
+
   toggles.forEach(toggle => {
     const setting = toggle.dataset.setting;
     const options = toggle.querySelectorAll('.toggle-option');
-    
+
     options.forEach(option => {
       option.addEventListener('click', () => {
         // Remove active class from all options in this toggle
         options.forEach(opt => opt.classList.remove('active'));
-        
+
         // Add active class to clicked option
         option.classList.add('active');
-        
+
         // Update current settings
         currentSettings[setting] = option.dataset.value;
-        
+
         // Update all commands on the page
         updateAllCommands();
       });
@@ -153,7 +153,7 @@ function initializeToggles() {
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   initializeToggles();
-  
+
   // Initialize syntax highlighting
   if (window.hljs) {
     hljs.highlightAll();

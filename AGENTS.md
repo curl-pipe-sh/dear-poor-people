@@ -87,32 +87,32 @@ This document provides guidelines for AI agents working on the poor-tools web in
   #!/usr/bin/env sh
   # description: Brief description
   # icon: mdi:icon-name
-  
+
   set -eu
-  
+
   # Global variables (UPPERCASE)
   SCRIPT_NAME="scriptname"
-  
+
   # Source libraries
   . lib/echo.sh # <TEMPLATE>
-  
+
   # Define usage function
   usage() {
     cat <<USAGE >&2
   Usage: ${SCRIPT_NAME} [options] arguments
   Description of what the script does.
-  
+
   Options:
     --debug    Enable debug output
     -h, --help Show this help
   USAGE
   }
-  
+
   # Helper functions (if needed)
   helper_function() {
     # Implementation
   }
-  
+
   # Main function contains the primary logic
   main() {
     # Early return for sourcing support
@@ -120,15 +120,17 @@ This document provides guidelines for AI agents working on the poor-tools web in
     then
       return 0
     fi
-    
+
     # Argument parsing and main logic here
   }
-  
+
   # Script entry point
   main "$@"
   ```
 - **Usage function**: Always define and use a `usage()` function for help output
 - **Main function**: Always wrap primary logic in a `main()` function and call `main "$@"`
+- **Sourcing support**: Add `SOURCED` variable check at start of `main()` to allow sourcing for testing
+- **Helper functions**: Extract complex logic into well-named helper functions to keep `main()` clean and readable
 - **Sourcing support**: Add `SOURCED` variable check at start of `main()` to allow sourcing for testing
 - **Helper functions**: Extract complex logic into well-named helper functions to keep `main()` clean and readable
 - **Variable expansion**: Use braces `${VAR}` when variable is not used alone:
@@ -219,6 +221,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Function exits**: Use `return` in functions, `exit` only from main script flow
 - **Avoid exit in functions**: Never use `exit` within functions - use `return` instead
 - **DRY principle**: Extract common patterns into functions to avoid repetition
+- **Library usage**: Use `has_command` utility from `lib/utils.sh` instead of duplicating command checks
   ```bash
   # Good (POSIX-compatible):
   download_file() {

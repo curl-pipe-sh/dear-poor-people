@@ -130,20 +130,44 @@
               && !(pkgs.lib.hasInfix ".mypy_cache" path);
           };
 
+          srcInfo = self.sourceInfo or { };
+          gitRev =
+            if srcInfo ? rev then
+              srcInfo.rev
+            else if srcInfo ? dirtyRev then
+              srcInfo.dirtyRev
+            else
+              "unknown";
+          gitShortRev =
+            if srcInfo ? shortRev then
+              srcInfo.shortRev
+            else if srcInfo ? dirtyShortRev then
+              srcInfo.dirtyShortRev
+            else
+              builtins.substring 0 7 gitRev;
+
           poor-installer-web = pkgs.python313Packages.buildPythonPackage {
             pname = "poor-installer-web";
-            version = "0.1.0";
+            version = gitShortRev;
             pyproject = true;
             src = cleanSrc;
 
-            nativeBuildInputs = with pkgs.python313Packages; [
-              hatchling
+            nativeBuildInputs = [
+              pkgs.python313Packages.hatchling
+              pkgs.makeWrapper
             ];
 
             propagatedBuildInputs = with pkgs.python313Packages; [
               fastapi
               uvicorn
             ];
+
+            # Set version information from git
+            postInstall = ''
+              # Wrap the main executable to set the version
+              wrapProgram $out/bin/poor-installer-web \
+                --set POOR_TOOLS_VERSION ${gitShortRev};
+            '';
 
             # Sanity check import at build time
             pythonImportsCheck = [ "poor_installer_web" ];
@@ -178,6 +202,7 @@
                 "BIND_HOST=0.0.0.0"
                 "BIND_PORT=7667"
                 "PYTHONUNBUFFERED=1"
+                "POOR_TOOLS_VERSION=${gitShortRev}"
               ];
               Healthcheck = {
                 Test = [

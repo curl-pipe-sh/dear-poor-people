@@ -1,8 +1,11 @@
 """Web installer for poor-tools."""
 
 import argparse
+import json
 import os
+import subprocess
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -47,6 +50,107 @@ def get_default_script_dir() -> Path:
 
 
 BASE_DIR = get_default_script_dir()
+
+
+def get_git_commit_sha() -> Optional[str]:
+    """Get the current git commit SHA if available."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def get_git_short_sha() -> Optional[str]:
+    """Get the current git commit short SHA if available."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def get_version_from_env() -> Optional[str]:
+    """Get version from environment variable (for containers/packages)."""
+    return os.environ.get("POOR_TOOLS_VERSION")
+
+
+def get_current_version() -> str:
+    """Get the current version, preferring environment, then git, then unknown."""
+    # Try environment variable first (for containers/packages)
+    env_version = get_version_from_env()
+    if env_version:
+        return env_version
+
+    # Try git commit SHA
+    git_sha = get_git_short_sha()
+    if git_sha:
+        return git_sha
+
+    # Fallback
+    return "unknown"
+
+
+def extract_script_metadata(script_path: Path) -> Dict[str, Any]:
+    """Extract metadata from a poor-tools script."""
+    metadata = {
+        "name": script_path.name,
+        "description": "",
+        "icon": "",
+        "version": get_current_version(),
+    }
+
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("# description:"):
+                    desc = line[13:].strip()
+                    # Remove leading colon if present
+                    if desc.startswith(":"):
+                        desc = desc[1:].strip()
+                    metadata["description"] = desc
+                elif line.startswith("# icon:"):
+                    metadata["icon"] = line[7:].strip()
+                elif line.startswith("# version:"):
+                    version_line = line[10:].strip()
+                    # If it's a template placeholder, use current version
+                    if version_line == "<GIT_COMMIT_SHA>":
+                        metadata["version"] = get_current_version()
+                    else:
+                        metadata["version"] = version_line
+                # Stop after the header comments
+                elif line and not line.startswith("#"):
+                    break
+    except OSError:
+        pass
+
+    return metadata
+
+
+def get_all_tools_metadata() -> List[Dict[str, Any]]:
+    """Get metadata for all available poor-tools."""
+    tools = []
+
+    # Get all poor* scripts in the base directory
+    for script_path in sorted(BASE_DIR.glob("poor*")):
+        if script_path.is_file() and script_path.name != "poor_installer_web":
+            metadata = extract_script_metadata(script_path)
+            tools.append(metadata)
+
+    return tools
 
 # Configuration that can be overridden via CLI args
 SCRIPT_DIR = BASE_DIR
@@ -332,8 +436,14 @@ def process_includes(content: str, base_dir: Path) -> str:
 
 def apply_common_placeholders(content: str, server_url: str) -> str:
     """Apply standard placeholder replacements for scripts."""
+    # Get current version for templating
+    version = get_current_version()
 
-    return content.replace("<BASE_URL>", server_url)
+    # Apply replacements
+    content = content.replace("<BASE_URL>", server_url)
+    content = content.replace("<GIT_COMMIT_SHA>", version)
+
+    return content
 
 
 def get_file_content(filename: str, no_templating: bool = False) -> str:
@@ -547,6 +657,20 @@ curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
 """
 
     return Response(content=tools_list, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/list/json")
+async def list_tools_json(request: Request) -> Dict[str, Any]:
+    """List available tools in JSON format with metadata and versions."""
+    server_url = get_server_url(request)
+    tools = get_all_tools_metadata()
+
+    return {
+        "server_url": server_url,
+        "version": get_current_version(),
+        "tools": tools,
+        "count": len(tools)
+    }
 
 
 async def _serve_installer(

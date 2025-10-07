@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: timeout implementation (like busybox timeout)
 # icon: mdi:timer-outline
+# version: <GIT_COMMIT_SHA>
 
 set -eu
 
@@ -206,7 +207,7 @@ main() {
   if ! "$COMMAND" --help >/dev/null 2>&1 && ! "$COMMAND" -h >/dev/null 2>&1 && ! "$COMMAND" --version >/dev/null 2>&1
   then
     # Try to execute it to see if it exists but isn't executable
-    if ! command -v "$COMMAND" >/dev/null 2>&1
+    if ! has_command "$COMMAND"
     then
       echo_error "Command not found: $COMMAND"
       return 127

@@ -43,7 +43,7 @@ error_missing_arg() {
 download_file() {
   # Use positional parameters directly to avoid 'local' in POSIX sh
   # $1 = url, $2 = target, $3 = downloader
-  
+
   # Use the common download_file function from lib/download.sh
   download_file_impl "$1" "$2" "$3"
 }

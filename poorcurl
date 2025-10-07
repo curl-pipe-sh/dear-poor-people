@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: curl, but uses wget behind the scenes
 # icon: mdi:download
+# version: <GIT_COMMIT_SHA>
 # curl-like wrapper using wget
 # Supports a practical subset of curl flags:
 #  -s, -S, -L, -o/-O, -d, -H, -I, -f, -k, -A, -u, -m/--max-time,
@@ -119,7 +120,7 @@ build_wget_command() {
   [ -n "${HEAD_ONLY:-}" ] && set -- "$@" "${WGET_SRVR}" --spider
   [ -n "${INSECURE:-}" ] && [ -n "$WGET_NOCHK" ] && set -- "$@" "${WGET_NOCHK}"
   [ -n "$USER_AGENT" ] && [ -n "$WGET_UA" ] && set -- "$@" "$WGET_UA=${USER_AGENT}"
-  
+
   if [ -n "$AUTH" ]
   then
     case "$WGET_AUTH_PASS" in
@@ -127,11 +128,11 @@ build_wget_command() {
       *)  set -- "$@" "$WGET_AUTH_USER=${AUTH%%:*}" "$WGET_AUTH_PASS=${AUTH#*:}" ;;
     esac
   fi
-  
+
   [ -n "$CONNECT_TIMEOUT" ] && [ -n "$WGET_CONNTO" ] && set -- "$@" "$WGET_CONNTO=${CONNECT_TIMEOUT}"
   [ -n "$MAX_TIME" ] && set -- "$@" "$WGET_TIMEOUT=${MAX_TIME}"
   [ -n "$RETRIES" ] && [ -n "$WGET_RETRY" ] && set -- "$@" "$WGET_RETRY=${RETRIES}"
-  
+
   if [ -n "$PROXY" ]
   then
     # Enable proxy via env executes (works on GNU & BusyBox)
@@ -171,7 +172,7 @@ execute_wget_with_status() {
     OUT_FILE=$(mktemp)
     ERR_FILE=$(mktemp)
     trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
-    
+
     if ! "$@" "${WGET_SRVR}" "$URL" >"$OUT_FILE" 2>"$ERR_FILE"
     then
       [ -n "${SHOWERR:-}" ] && cat "$ERR_FILE" >&2
@@ -448,7 +449,7 @@ main() {
     URL="$1"
     shift
   fi
-  
+
   if [ -z "${URL:-}" ]
   then
     usage

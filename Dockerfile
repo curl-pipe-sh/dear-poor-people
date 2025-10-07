@@ -1,5 +1,9 @@
 FROM python:3.13-slim
 
+# Build argument for version information
+ARG GIT_COMMIT_SHA=unknown
+ENV POOR_TOOLS_VERSION=${GIT_COMMIT_SHA}
+
 WORKDIR /app
 
 # Copy all source files first

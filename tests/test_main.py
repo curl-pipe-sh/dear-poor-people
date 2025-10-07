@@ -116,7 +116,7 @@ def test_installer_endpoints() -> None:
     assert "all installer" in response.text
     assert "Installing all poor-tools" in response.text
 
-    # /installer should now use poor with install command  
+    # /installer should now use poor with install command
     response = client.get("/installer")
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
@@ -243,3 +243,40 @@ def test_templating_parameter(no_templating: str | None) -> None:
     else:
         # Should have processed template
         assert "has_command" in response.text or "echo_success" in response.text
+
+
+def test_json_list_endpoint() -> None:
+    """Test the JSON list endpoint."""
+    response = client.get("/list/json")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+
+    data = response.json()
+
+    # Check required top-level fields
+    assert "server_url" in data
+    assert "version" in data
+    assert "tools" in data
+    assert "count" in data
+
+    # Check that we have tools
+    assert data["count"] > 0
+    assert len(data["tools"]) == data["count"]
+
+    # Check tool structure
+    for tool in data["tools"]:
+        assert "name" in tool
+        assert "description" in tool
+        assert "icon" in tool
+        assert "version" in tool
+
+        # Tool names should start with "poor"
+        assert tool["name"].startswith("poor")
+
+        # Version should be present and not be the template placeholder
+        assert tool["version"] != "<GIT_COMMIT_SHA>"
+        assert tool["version"] is not None
+        assert len(tool["version"]) > 0
+
+    # Check that server_url matches test client
+    assert data["server_url"] == "http://testserver"

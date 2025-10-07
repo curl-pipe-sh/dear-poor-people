@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # description: busybox-style multiplexer for poor-tools
 # icon: mdi:toolbox
+# version: <GIT_COMMIT_SHA>
 
 set -eu
 
@@ -370,14 +371,14 @@ initialize_install_source_directory() {
 
 handle_install_command() {
   shift  # remove "install" from arguments
-  
+
   # Initialize variables for install functionality
   TARGET_DEST=""
   EMULATE="false"
   IGNORE_ARGS=""
   CLEAR_DEST="false"
   UNINSTALL="false"
-  
+
   # Parse install options
   while [ $# -gt 0 ]
   do
@@ -458,7 +459,7 @@ handle_install_command() {
   then
     TARGET_DEST="$DEST"
   fi
-  
+
   if [ -z "$TARGET_DEST" ]
   then
     echo_error "destination required (--dest or DEST env var)"
@@ -485,7 +486,7 @@ handle_install_command() {
 
   # Initialize source directory and find available scripts
   initialize_install_source_directory
-  
+
   AVAILABLE_SCRIPTS=""
   for SCRIPT_PATH_CANDIDATE in poor*
   do
@@ -707,28 +708,32 @@ Options:
   --remote         Only show remotely available tools (don't check local)
   --installed      Only show installed tools
   --available      Only show non-installed tools
+  --check-updates  Check for updates and show version information (⚠ = update available)
+  --updates        Alias for --check-updates
   -h, --help       Show this help
 
 Shows a list of all poor-tools with checkmarks (✓) for installed tools.
+With --check-updates, shows version info and update availability.
 
 Examples:
-  ${SCRIPT_NAME} list                              # List all available tools
-  ${SCRIPT_NAME} list --dest ~/.local/bin         # Check installation in specific dir
-  ${SCRIPT_NAME} list --emulate --dest ~/.local/bin # Check emulated installations
-  ${SCRIPT_NAME} list --installed                 # Only show installed tools
-  ${SCRIPT_NAME} list --local                     # Only show locally available tools
+  ${SCRIPT_NAME} list                                    # List all available tools
+  ${SCRIPT_NAME} list --dest ~/.local/bin               # Check installation in specific dir
+  ${SCRIPT_NAME} list --emulate --dest ~/.local/bin     # Check emulated installations
+  ${SCRIPT_NAME} list --installed                       # Only show installed tools
+  ${SCRIPT_NAME} list --check-updates --dest ~/.local/bin  # Check for updates
+  ${SCRIPT_NAME} list --local                           # Only show locally available tools
 USAGE_LIST
 }
 
 handle_uninstall_command() {
   shift  # remove "uninstall" from arguments
-  
+
   # Initialize variables for uninstall functionality
   TARGET_DEST=""
   EMULATE="false"
   IGNORE_ARGS=""
   CLEAR_DEST="false"
-  
+
   # Parse uninstall options
   while [ $# -gt 0 ]
   do
@@ -805,7 +810,7 @@ handle_uninstall_command() {
   then
     TARGET_DEST="$DEST"
   fi
-  
+
   if [ -z "$TARGET_DEST" ]
   then
     echo_error "destination required (--dest or DEST env var)"
@@ -822,7 +827,7 @@ handle_uninstall_command() {
 
   # Initialize source directory and find available scripts
   initialize_install_source_directory
-  
+
   AVAILABLE_SCRIPTS=""
   for SCRIPT_PATH_CANDIDATE in poor*
   do
@@ -938,7 +943,7 @@ handle_uninstall_command() {
       fi
     fi
     DEST_PATH="$TARGET_DEST/$DEST_NAME"
-    
+
     if [ -e "$DEST_PATH" ]
     then
       rm -f "$DEST_PATH"
@@ -953,7 +958,7 @@ handle_uninstall_command() {
   then
     echo "nothing removed" >&2
   fi
-  
+
   if [ "$CLEAR_DEST" = "true" ]
   then
     if ! rmdir "$TARGET_DEST" 2>/dev/null
@@ -980,16 +985,98 @@ get_tool_description() {
   return 1
 }
 
+# Get tool version from script header
+get_tool_version() {
+  TOOL_FILE="$1"
+  if [ -f "$TOOL_FILE" ]
+  then
+    VERSION=$(grep "^# version:" "$TOOL_FILE" 2>/dev/null | head -1 | sed 's/^# version: *//')
+    if [ -n "$VERSION" ]
+    then
+      printf '%s' "$VERSION"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Get remote tools metadata as JSON
+get_remote_tools_json() {
+  REMOTE_JSON=""
+
+  case "$BASE_URL" in
+    *://*)
+      # Try to get JSON list from web server
+      DOWNLOADER=$(select_downloader_impl 2>/dev/null) || return 1
+      JSON_URL=$(strip_trailing_slash "$BASE_URL")/list/json
+
+      if [ "$DOWNLOADER" = "curl" ]
+      then
+        REMOTE_JSON=$(curl -fsSL "$JSON_URL" 2>/dev/null)
+      elif [ "$DOWNLOADER" = "wget" ]
+      then
+        REMOTE_JSON=$(wget -qO- "$JSON_URL" 2>/dev/null)
+      fi
+      ;;
+  esac
+
+  printf '%s' "$REMOTE_JSON"
+}
+
+# Extract version from JSON for a specific tool
+get_remote_tool_version() {
+  TOOL_NAME="$1"
+  JSON_DATA="$2"
+
+  if [ -z "$JSON_DATA" ]
+  then
+    return 1
+  fi
+
+  # Simple JSON parsing - extract version for the specific tool
+  # This is a basic implementation that works for our simple JSON structure
+  TOOL_LINE=$(printf '%s' "$JSON_DATA" | grep -F "\"name\": \"$TOOL_NAME\"" -A 5 2>/dev/null)
+  if [ -n "$TOOL_LINE" ]
+  then
+    VERSION_LINE=$(printf '%s' "$TOOL_LINE" | grep "\"version\":" | head -1)
+    if [ -n "$VERSION_LINE" ]
+    then
+      # Extract version value - handle both "version" and potential escaping
+      VERSION=$(printf '%s' "$VERSION_LINE" | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+      if [ -n "$VERSION" ] && [ "$VERSION" != "$VERSION_LINE" ]
+      then
+        printf '%s' "$VERSION"
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+# Check if tool has updates available
+has_tool_update() {
+  TOOL_NAME="$1"
+  LOCAL_VERSION="$2"
+  REMOTE_JSON="$3"
+
+  REMOTE_VERSION=$(get_remote_tool_version "$TOOL_NAME" "$REMOTE_JSON")
+  if [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "$LOCAL_VERSION" ] && [ "$LOCAL_VERSION" != "unknown" ]
+  then
+    return 0  # Update available
+  fi
+  return 1  # No update available
+}
+
 # Get available tools from remote source
 get_remote_tools() {
   REMOTE_LIST=""
-  
+
   case "$BASE_URL" in
     *://*)
       # Try to get list from web server
       DOWNLOADER=$(select_downloader_impl 2>/dev/null) || return 1
       LIST_URL=$(strip_trailing_slash "$BASE_URL")/list
-      
+
       if [ "$DOWNLOADER" = "curl" ]
       then
         REMOTE_LIST=$(curl -fsSL "$LIST_URL" 2>/dev/null | grep "^poor" | sort)
@@ -1016,7 +1103,7 @@ get_remote_tools() {
       fi
       ;;
   esac
-  
+
   printf '%s' "$REMOTE_LIST"
 }
 
@@ -1025,12 +1112,12 @@ is_tool_installed() {
   TOOL_NAME="$1"
   TARGET_DEST="$2"
   EMULATE="$3"
-  
+
   if [ -z "$TARGET_DEST" ] || [ ! -d "$TARGET_DEST" ]
   then
     return 1
   fi
-  
+
   CHECK_NAME="$TOOL_NAME"
   if [ "$EMULATE" = "true" ] && [ "$TOOL_NAME" != "poor" ]
   then
@@ -1040,13 +1127,13 @@ is_tool_installed() {
       CHECK_NAME="$STRIPPED_NAME"
     fi
   fi
-  
+
   [ -f "$TARGET_DEST/$CHECK_NAME" ]
 }
 
 handle_list_command() {
   shift  # remove "list" from arguments
-  
+
   # Initialize variables for list functionality
   TARGET_DEST=""
   EMULATE="false"
@@ -1054,7 +1141,8 @@ handle_list_command() {
   REMOTE_ONLY="false"
   INSTALLED_ONLY="false"
   AVAILABLE_ONLY="false"
-  
+  CHECK_UPDATES="false"
+
   # Parse list options
   while [ $# -gt 0 ]
   do
@@ -1094,6 +1182,10 @@ handle_list_command() {
         AVAILABLE_ONLY="true"
         shift
         ;;
+      --check-updates|--updates)
+        CHECK_UPDATES="true"
+        shift
+        ;;
       -h|--help)
         usage_list
         return 0
@@ -1121,14 +1213,21 @@ handle_list_command() {
     TARGET_DEST="$DEST"
   fi
 
+  # Get remote JSON data for version checking if needed
+  REMOTE_JSON=""
+  if [ "$CHECK_UPDATES" = "true" ] || [ "$LOCAL_ONLY" != "true" ]
+  then
+    REMOTE_JSON=$(get_remote_tools_json 2>/dev/null || true)
+  fi
+
   # Initialize collections
   ALL_TOOLS=""
-  
+
   # Get local tools
   if [ "$REMOTE_ONLY" != "true" ]
   then
     initialize_install_source_directory >/dev/null 2>&1 || true
-    
+
     for SCRIPT_PATH in poor*
     do
       if [ -f "$SCRIPT_PATH" ]
@@ -1142,7 +1241,7 @@ handle_list_command() {
       fi
     done
   fi
-  
+
   # Get remote tools
   if [ "$LOCAL_ONLY" != "true" ]
   then
@@ -1161,35 +1260,41 @@ $REMOTE_TOOLS
 EOF
     fi
   fi
-  
+
   # Sort and deduplicate tools
   ALL_TOOLS=$(printf '%s' "$ALL_TOOLS" | grep . | sort | uniq)
-  
+
   if [ -z "$ALL_TOOLS" ]
   then
     echo "No poor-tools found" >&2
     return 1
   fi
-  
+
   # Display header
   if [ -n "$TARGET_DEST" ]
   then
-    printf "Available poor-tools (✓ = installed in %s):\n\n" "$TARGET_DEST"
+    if [ "$CHECK_UPDATES" = "true" ]
+    then
+      printf "Available poor-tools (✓ = installed, ⚠ = update available in %s):\n\n" "$TARGET_DEST"
+    else
+      printf "Available poor-tools (✓ = installed in %s):\n\n" "$TARGET_DEST"
+    fi
   else
     printf "Available poor-tools:\n\n"
   fi
-  
+
   # Display tools with installation status
   TOOL_COUNT=0
   INSTALLED_COUNT=0
-  
+  UPDATE_COUNT=0
+
   while IFS= read -r TOOL
   do
     if [ -z "$TOOL" ]
     then
       continue
     fi
-    
+
     # Check installation status
     INSTALLED="false"
     if [ -n "$TARGET_DEST" ]
@@ -1200,22 +1305,42 @@ EOF
         INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
       fi
     fi
-    
+
+    # Check for updates
+    HAS_UPDATE="false"
+    if [ "$CHECK_UPDATES" = "true" ] && [ "$INSTALLED" = "true" ]
+    then
+      LOCAL_VERSION=""
+      if [ -f "$TOOL" ]
+      then
+        LOCAL_VERSION=$(get_tool_version "$TOOL")
+      fi
+
+      if [ -n "$LOCAL_VERSION" ] && has_tool_update "$TOOL" "$LOCAL_VERSION" "$REMOTE_JSON"
+      then
+        HAS_UPDATE="true"
+        UPDATE_COUNT=$((UPDATE_COUNT + 1))
+      fi
+    fi
+
     # Apply filters
     if [ "$INSTALLED_ONLY" = "true" ] && [ "$INSTALLED" != "true" ]
     then
       continue
     fi
-    
+
     if [ "$AVAILABLE_ONLY" = "true" ] && [ "$INSTALLED" = "true" ]
     then
       continue
     fi
-    
+
     # Format output
     if [ -n "$TARGET_DEST" ]
     then
-      if [ "$INSTALLED" = "true" ]
+      if [ "$CHECK_UPDATES" = "true" ] && [ "$HAS_UPDATE" = "true" ]
+      then
+        STATUS="⚠"
+      elif [ "$INSTALLED" = "true" ]
       then
         STATUS="✓"
       else
@@ -1225,19 +1350,29 @@ EOF
     else
       printf "  %s" "$TOOL"
     fi
-    
+
     # Add description if available
     DESC=""
     if [ -f "$TOOL" ]
     then
       DESC=$(get_tool_description "$TOOL")
     fi
-    
+
     if [ -n "$DESC" ]
     then
       printf " - %s" "$DESC"
     fi
-    
+
+    # Add version info if checking updates
+    if [ "$CHECK_UPDATES" = "true" ] && [ -f "$TOOL" ]
+    then
+      LOCAL_VERSION=$(get_tool_version "$TOOL")
+      if [ -n "$LOCAL_VERSION" ]
+      then
+        printf " [%s]" "$LOCAL_VERSION"
+      fi
+    fi
+
     printf '\n'
     TOOL_COUNT=$((TOOL_COUNT + 1))
   done <<EOF
@@ -1248,11 +1383,16 @@ EOF
   printf '\n'
   if [ -n "$TARGET_DEST" ]
   then
-    printf "Total: %d tools (%d installed, %d available)\n" "$TOOL_COUNT" "$INSTALLED_COUNT" "$((TOOL_COUNT - INSTALLED_COUNT))"
+    if [ "$CHECK_UPDATES" = "true" ] && [ "$UPDATE_COUNT" -gt 0 ]
+    then
+      printf "Total: %d tools (%d installed, %d available, %d updates)\n" "$TOOL_COUNT" "$INSTALLED_COUNT" "$((TOOL_COUNT - INSTALLED_COUNT))" "$UPDATE_COUNT"
+    else
+      printf "Total: %d tools (%d installed, %d available)\n" "$TOOL_COUNT" "$INSTALLED_COUNT" "$((TOOL_COUNT - INSTALLED_COUNT))"
+    fi
   else
     printf "Total: %d tools\n" "$TOOL_COUNT"
   fi
-  
+
   # Display destination info
   if [ -n "$TARGET_DEST" ]
   then
@@ -1264,6 +1404,16 @@ EOF
     fi
   else
     printf "Use --dest DIR to check installation status\n"
+  fi
+
+  # Display update info
+  if [ "$CHECK_UPDATES" = "true" ]
+  then
+    printf "Use 'poor self-update' to update the poor script\n"
+    if [ "$UPDATE_COUNT" -gt 0 ]
+    then
+      printf "Use 'poor install --dest %s' to update tools with available updates\n" "${TARGET_DEST:-\$DEST}"
+    fi
   fi
 }
 
@@ -1365,6 +1515,13 @@ fi
 SELF_NAME_RAW=$(basename "$0")
 SELF_NAME=$(resolve_invocation "$SELF_NAME_RAW")
 
+main() {
+  # Early return for sourcing support
+  if [ -n "${SOURCED:-}" ]
+  then
+    return 0
+  fi
+
 if [ "$SELF_NAME" = "poor" ]
 then
   if [ $# -eq 0 ]
@@ -1401,7 +1558,7 @@ then
       ;;
     self-update)
       shift
-      
+
       # Parse self-update options
       FORCE_UPDATE=""
       while [ $# -gt 0 ]
@@ -1444,16 +1601,16 @@ SELF_UPDATE_HELP
 
       # Get absolute path
       CURRENT_SCRIPT=$(cd "$(dirname "$CURRENT_SCRIPT")" && pwd)/$(basename "$CURRENT_SCRIPT")
-      
+
       echo_info "Updating poor script: $CURRENT_SCRIPT"
-      
+
       # Download new version to temporary file
       TMP_SCRIPT="${CURRENT_SCRIPT}.update.$$"
       trap_cleanup_prepare
       TMP_DOWNLOAD="$TMP_SCRIPT"
-      
+
       echo_info "Downloading latest poor script..."
-      
+
       if download_from_base "$TMP_SCRIPT" 1 "poor"
       then
         # Verify it's a valid poor script
@@ -1467,7 +1624,7 @@ SELF_UPDATE_HELP
             then
               CURRENT_SIZE=$(wc -c < "$CURRENT_SCRIPT" 2>/dev/null || echo "0")
               NEW_SIZE=$(wc -c < "$TMP_SCRIPT" 2>/dev/null || echo "0")
-              
+
               if [ "$NEW_SIZE" -lt "$((CURRENT_SIZE / 2))" ] && [ "$NEW_SIZE" -gt 0 ]
               then
                 echo_warning "New version appears significantly smaller than current version"
@@ -1479,7 +1636,7 @@ SELF_UPDATE_HELP
               fi
             fi
           fi
-          
+
           # Replace current script
           mv "$TMP_SCRIPT" "$CURRENT_SCRIPT"
           chmod 755 "$CURRENT_SCRIPT"
@@ -1567,3 +1724,6 @@ ensure_dependencies "$CACHE_PATH"
 
 chmod 755 "$CACHE_PATH"
 exec "$CACHE_PATH" "$@"
+}
+
+main "$@"
