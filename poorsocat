@@ -3,9 +3,16 @@
 # icon: mdi:transit-connection-variant
 # poorcat.sh — minimal interactive TTY bridge (like socat)
 
+# shellcheck disable=SC2034  # Used by usage function
+SCRIPT_NAME="poorsocat"
+
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+
 usage() {
   cat <<USAGE >&2
-Usage: poorsocat DEVICE [BAUD]
+Usage: ${SCRIPT_NAME} [--debug] [--trace] DEVICE [BAUD]
 
 A minimal interactive TTY bridge for serial communication.
 
@@ -14,12 +21,14 @@ Arguments:
   BAUD      Baud rate (default: 115200)
 
 Options:
-  -h, --help    Show this help message
+  --debug          Enable debug output
+  --trace          Enable shell tracing (set -x)
+  -h, --help       Show this help message
 
 Examples:
-  poorsocat /dev/ttyUSB0           # Connect to USB serial at 115200 baud
-  poorsocat /dev/ttyACM0 9600      # Connect to Arduino at 9600 baud
-  poorsocat /dev/ttyS0 38400       # Connect to serial port at 38400 baud
+  ${SCRIPT_NAME} /dev/ttyUSB0           # Connect to USB serial at 115200 baud
+  ${SCRIPT_NAME} /dev/ttyACM0 9600      # Connect to Arduino at 9600 baud
+  ${SCRIPT_NAME} /dev/ttyS0 38400       # Connect to serial port at 38400 baud
 
 Note: You may need appropriate permissions to access serial devices.
       Try adding your user to the 'dialout' group: sudo usermod -a -G dialout \$USER
@@ -28,14 +37,26 @@ USAGE
 
 # Parse arguments
 case "${1:-}" in
+  --debug)
+    DEBUG=1
+    export DEBUG  # Export for use by echo.sh functions
+    shift
+    ;;
+  --trace)
+    set -x
+    shift
+    ;;
+esac
+
+case "${1:-}" in
   -h|--help)
     usage
     exit 0
     ;;
   "")
-    echo "Error: DEVICE argument required" >&2
-    echo "Usage: poorsocat DEVICE [BAUD]" >&2
-    echo "A minimal interactive TTY bridge for serial communication." >&2
+    echo_error "Error: DEVICE argument required"
+    echo_error "Usage: ${SCRIPT_NAME} DEVICE [BAUD]"
+    echo_error "A minimal interactive TTY bridge for serial communication."
     usage
     exit 2
     ;;

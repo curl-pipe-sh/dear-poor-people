@@ -68,3 +68,94 @@ function showSuccess(btn, actionType, toolName) {
     btn.classList.remove('success');
   }, 2000);
 }
+
+// Command generation and toggle functionality
+let currentSettings = {
+  downloader: 'curl',
+  protocol: 'https'
+};
+
+function getBaseUrl() {
+  const protocol = currentSettings.protocol;
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  const portSuffix = port ? `:${port}` : '';
+  return `${protocol}://${hostname}${portSuffix}`;
+}
+
+function generateCommand(toolName, action) {
+  const baseUrl = getBaseUrl();
+  const downloader = currentSettings.downloader;
+  
+  if (action === 'run') {
+    if (downloader === 'curl') {
+      return `curl -sSL ${baseUrl}/${toolName} | sh -s -- --help`;
+    } else {
+      return `wget -qO- ${baseUrl}/${toolName} | sh -s -- --help`;
+    }
+  } else if (action === 'install') {
+    if (downloader === 'curl') {
+      return `curl -sSL ${baseUrl}/${toolName}/install | sh`;
+    } else {
+      return `wget -qO- ${baseUrl}/${toolName}/install | sh`;
+    }
+  }
+  return '';
+}
+
+function updateAllCommands() {
+  const toolCards = document.querySelectorAll('.tool-card');
+  
+  toolCards.forEach(card => {
+    const toolName = card.querySelector('.tool-name').textContent.trim();
+    const runCommand = card.querySelector('[data-action="run"] code');
+    const installCommand = card.querySelector('[data-action="install"] code');
+    
+    if (runCommand) {
+      runCommand.textContent = generateCommand(toolName, 'run');
+    }
+    if (installCommand) {
+      installCommand.textContent = generateCommand(toolName, 'install');
+    }
+  });
+  
+  // Re-highlight syntax
+  if (window.hljs) {
+    hljs.highlightAll();
+  }
+}
+
+function initializeToggles() {
+  const toggles = document.querySelectorAll('.toggle-switch');
+  
+  toggles.forEach(toggle => {
+    const setting = toggle.dataset.setting;
+    const options = toggle.querySelectorAll('.toggle-option');
+    
+    options.forEach(option => {
+      option.addEventListener('click', () => {
+        // Remove active class from all options in this toggle
+        options.forEach(opt => opt.classList.remove('active'));
+        
+        // Add active class to clicked option
+        option.classList.add('active');
+        
+        // Update current settings
+        currentSettings[setting] = option.dataset.value;
+        
+        // Update all commands on the page
+        updateAllCommands();
+      });
+    });
+  });
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  initializeToggles();
+  
+  // Initialize syntax highlighting
+  if (window.hljs) {
+    hljs.highlightAll();
+  }
+});

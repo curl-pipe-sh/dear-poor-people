@@ -9,7 +9,7 @@
 # Default values
 TIMEOUT=3
 PING_SCAN=1
-JSON_OUTPUT=0
+JSON_OUTPUT=
 PORTS=""
 HOST=""
 # shellcheck disable=SC2034  # Used by echo.sh functions
@@ -27,8 +27,10 @@ JSON_SCAN_TIME=""
 
 usage() {
   cat << EOF
-Usage: poornmap [OPTIONS] HOST
+Usage: ${SCRIPT_NAME} [--debug] [--trace] [OPTIONS] HOST
 Options:
+  --debug          Enable debug output
+  --trace          Enable shell tracing (set -x)
   -p PORTS         Port specification (e.g., 22,80,443 or 1-1000)
   -Pn              Skip ping scan (disable host discovery)
   --timeout SECS   Timeout in seconds (default: ${TIMEOUT})
@@ -42,11 +44,11 @@ Environment Variables:
   QUIET            Suppress info messages
 
 Examples:
-  $0 -p 22,80,443 example.com
-  $0 -p 1-1000 -Pn 192.168.1.1
-  $0 --json -p 80,443 google.com
-  $0 --prog nc -p 22 github.com
-  PROG=bash $0 -p 443 example.com
+  ${SCRIPT_NAME} -p 22,80,443 example.com
+  ${SCRIPT_NAME} -p 1-1000 -Pn 192.168.1.1
+  ${SCRIPT_NAME} --json -p 80,443 google.com
+  ${SCRIPT_NAME} --prog nc -p 22 github.com
+  PROG=bash ${SCRIPT_NAME} -p 443 example.com
 EOF
 }
 
@@ -294,7 +296,7 @@ json_output() {
   "scan_time": "${JSON_SCAN_TIME}",
   "scanner": "poornmap",
   "tool_used": "${NETCAT_TOOL}",
-  "ping_scan_disabled": $([ "$PING_SCAN" = "0" ] && echo "true" || echo "false"),
+  "ping_scan_disabled": $([ -z "${PING_SCAN:-}" ] && echo "true" || echo "false"),
   "ports": [${JSON_RESULTS}]
 }
 EOF
@@ -305,7 +307,7 @@ scan_ports() {
   host="$1"
   ports="$2"
 
-  if [ "$JSON_OUTPUT" = "1" ]
+  if [ -n "${JSON_OUTPUT:-}" ]
   then
     json_init "$host"
   else
@@ -324,7 +326,7 @@ scan_ports() {
     then
       # Port is open
       open_ports=$((open_ports + 1))
-      if [ "$JSON_OUTPUT" = "1" ]
+      if [ -n "${JSON_OUTPUT:-}" ]
       then
         json_add_port "$port" "open"
       else
@@ -332,7 +334,7 @@ scan_ports() {
       fi
     else
       # Port is closed/filtered
-      if [ "$JSON_OUTPUT" = "1" ]
+      if [ -n "${JSON_OUTPUT:-}" ]
       then
         json_add_port "$port" "closed"
       else
@@ -341,7 +343,7 @@ scan_ports() {
     fi
   done
 
-  if [ "$JSON_OUTPUT" = "1" ]
+  if [ -n "${JSON_OUTPUT:-}" ]
   then
     json_output
   else
@@ -356,6 +358,15 @@ scan_ports() {
 while [ $# -gt 0 ]
 do
   case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -370,7 +381,7 @@ do
       shift 2
       ;;
     -Pn)
-      PING_SCAN=0
+      PING_SCAN=
       shift
       ;;
     --timeout)
@@ -442,13 +453,13 @@ then
 fi
 
 # Optional ping check (if not disabled with -Pn)
-if [ "$PING_SCAN" = "1" ]
+if [ -n "${PING_SCAN:-}" ]
 then
   if command -v ping >/dev/null 2>&1
   then
     if ! ping -c 1 -W 3 "$HOST" >/dev/null 2>&1
     then
-      if [ "$JSON_OUTPUT" = "1" ]
+      if [ -n "${JSON_OUTPUT:-}" ]
       then
         json_init "$HOST"
         json_output
@@ -459,7 +470,7 @@ then
       exit 1
     fi
   else
-    if [ "$JSON_OUTPUT" = "0" ]
+    if [ -z "${JSON_OUTPUT:-}" ]
     then
       echo_warning "ping command not available, skipping host discovery"
     fi

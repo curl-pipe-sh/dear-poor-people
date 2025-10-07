@@ -95,11 +95,75 @@ body {
 .tagline {
   font-size: 1rem;
   color: var(--gray-light);
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
   max-width: 600px;
   margin-left: auto;
   margin-right: auto;
   animation: slideUp 0.8s ease-out 0.2s both;
+}
+
+.controls-section {
+  margin-bottom: 2rem;
+  animation: slideUp 0.8s ease-out 0.4s both;
+}
+
+.controls-grid {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.control-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toggle-switch {
+  display: flex;
+  background: var(--dark-lighter);
+  border-radius: 8px;
+  padding: 4px;
+  border: 1px solid var(--border);
+}
+
+.toggle-option {
+  background: none;
+  border: none;
+  color: var(--gray-light);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 70px;
+}
+
+.toggle-option:hover {
+  color: var(--white);
+  background: var(--dark-light);
+}
+
+.toggle-option.active {
+  background: var(--primary);
+  color: white;
+}
+
+.toggle-option.active:hover {
+  background: var(--primary-dark);
 }
 
 .section {
@@ -346,6 +410,23 @@ body {
 
   .hero {
     padding: 2rem 0 1rem;
+  }
+
+  .controls-grid {
+    gap: 1rem;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .control-group {
+    flex-direction: row;
+    gap: 1rem;
+  }
+
+  .toggle-option {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    min-width: 60px;
   }
 
   .tools-grid {

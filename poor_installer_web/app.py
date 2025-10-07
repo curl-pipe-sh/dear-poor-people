@@ -330,6 +330,12 @@ def process_includes(content: str, base_dir: Path) -> str:
     return "\n".join(result_lines)
 
 
+def apply_common_placeholders(content: str, server_url: str) -> str:
+    """Apply standard placeholder replacements for scripts."""
+
+    return content.replace("<BASE_URL>", server_url)
+
+
 def get_file_content(filename: str, no_templating: bool = False) -> str:
     """Get the content of a file, optionally processing includes."""
     file_path = SCRIPT_DIR / filename
@@ -364,10 +370,13 @@ async def get_root(request: Request, no_templating: str | None = None) -> Respon
         installer_links = []
 
         for tool in tools:
-            # Create display name (remove poor prefix for display if present)
-            display_name = (
-                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
-            )
+            # Create display name (remove poor prefix for display if present, except for "poor" itself)
+            if tool == "poor":
+                display_name = "poor"
+            else:
+                display_name = (
+                    tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+                )
             tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
             installer_links.append(f"- {server_url}/{display_name}/install")
 
@@ -409,7 +418,13 @@ All endpoints support ?no_templating=1 to disable include processing.
     # Generate tools cards HTML
     tools_cards_html = ""
     for i, tool in enumerate(tools):
-        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+        # Create display name (remove poor prefix for display if present, except for "poor" itself)
+        if tool == "poor":
+            display_name = "poor"
+        else:
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
         description = get_tool_description(tool)
         icon = get_tool_icon(tool)
         delay = i * 100  # Stagger animations
@@ -433,7 +448,7 @@ All endpoints support ?no_templating=1 to disable include processing.
             <div class="command-snippet">
               <span class="command-label">Run directly:</span>
               <div class="command-box">
-                <pre class="command-code"><code class="language-bash">{run_command}</code></pre>
+                <pre class="command-code" data-action="run"><code class="language-bash">{run_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{run_command}', 'run', '{display_name}')" title="Copy command">
                   <iconify-icon icon="mdi:content-copy"></iconify-icon>
                 </button>
@@ -442,7 +457,7 @@ All endpoints support ?no_templating=1 to disable include processing.
             <div class="command-snippet">
               <span class="command-label">Install locally:</span>
               <div class="command-box">
-                <pre class="command-code"><code class="language-bash">{install_command}</code></pre>
+                <pre class="command-code" data-action="install"><code class="language-bash">{install_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{install_command}', 'install', '{display_name}')" title="Copy command">
                   <iconify-icon icon="mdi:content-copy"></iconify-icon>
                 </button>
@@ -493,8 +508,13 @@ async def list_tools(request: Request) -> Response:
     installer_links = []
 
     for tool in tools:
-        # Create display name (remove poor prefix for display if present)
-        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+        # Create display name (remove poor prefix for display if present, except for "poor" itself)
+        if tool == "poor":
+            display_name = "poor"
+        else:
+            display_name = (
+                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+            )
         tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
         installer_links.append(f"- {server_url}/{display_name}/install")
 
@@ -529,22 +549,34 @@ curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
     return Response(content=tools_list, media_type="text/plain; charset=utf-8")
 
 
-@app.get("/installer", response_class=PlainTextResponse)
-async def get_installer(no_templating: str | None = None) -> Response:
-    """Serve the poor-installer script."""
+async def _serve_installer(
+    request: Request, no_templating: str | None = None
+) -> Response:
+    """Common installer handler."""
     content = get_file_content("poor-installer", no_templating == "1")
+
+    if no_templating != "1":
+        server_url = get_server_url(request)
+        content = apply_common_placeholders(content, server_url)
+
     return PlainTextResponse(
         content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
     )
 
 
+@app.get("/installer", response_class=PlainTextResponse)
+async def get_installer(request: Request, no_templating: str | None = None) -> Response:
+    """Serve the poor-installer script."""
+    return await _serve_installer(request, no_templating)
+
+
 # Catch-all for /install* paths
 @app.get("/install{path:path}", response_class=PlainTextResponse)
 async def get_installer_with_path(
-    path: str, no_templating: str | None = None
+    request: Request, path: str, no_templating: str | None = None
 ) -> Response:
     """Serve the poor-installer script for any /install* path."""
-    return await get_installer(no_templating)
+    return await _serve_installer(request, no_templating)
 
 
 @app.get("/health")
@@ -574,7 +606,9 @@ async def get_tool_installer(
 
 # Dynamic tool script handler
 @app.get("/{tool_name}", response_class=PlainTextResponse)
-async def get_tool_script(tool_name: str, no_templating: str | None = None) -> Response:
+async def get_tool_script(
+    tool_name: str, request: Request, no_templating: str | None = None
+) -> Response:
     """Serve a tool script dynamically."""
     # Handle special cases first
     if tool_name in {"health", "list", "install", "installer"}:
@@ -587,6 +621,10 @@ async def get_tool_script(tool_name: str, no_templating: str | None = None) -> R
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
     content = get_file_content(canonical_name, no_templating == "1")
+
+    if no_templating != "1":
+        server_url = get_server_url(request)
+        content = apply_common_placeholders(content, server_url)
     return PlainTextResponse(
         content=content, headers={"Content-Type": "text/plain; charset=utf-8"}
     )

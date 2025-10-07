@@ -24,6 +24,26 @@
     <section class="hero">
       <h1 class="title">poor-tools</h1>
       <p class="tagline">Portable shell tools for when you can't install the real thing</p>
+      
+      <!-- Command Options Controls -->
+      <div class="controls-section">
+        <div class="controls-grid">
+          <div class="control-group">
+            <span class="control-label">Downloader:</span>
+            <div class="toggle-switch" data-setting="downloader">
+              <button class="toggle-option active" data-value="curl">curl</button>
+              <button class="toggle-option" data-value="wget">wget</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Protocol:</span>
+            <div class="toggle-switch" data-setting="protocol">
+              <button class="toggle-option active" data-value="https">HTTPS</button>
+              <button class="toggle-option" data-value="http">HTTP</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="section">
@@ -53,11 +73,5 @@
   </div>
 
   <script>{{ js_content }}</script>
-  <script>
-    // Initialize syntax highlighting after page load
-    document.addEventListener('DOMContentLoaded', function() {
-      hljs.highlightAll();
-    });
-  </script>
 </body>
 </html>

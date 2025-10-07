@@ -7,6 +7,7 @@ set -eu
 # Source utility libraries - these lines get replaced during templating
 . lib/utils.sh # <TEMPLATE>
 . lib/echo.sh # <TEMPLATE>
+. lib/download.sh # <TEMPLATE>
 
 TOOL_NAME="<TOOL_NAME>"
 SCRIPT_URL="<SERVER_URL>/<TOOL_NAME>"
@@ -24,6 +25,8 @@ Options:
   --emulate        Strip leading "poor" when naming installed binary
   --clear          Remove DEST before install. With --uninstall try removing DEST after
   --uninstall      Remove matching files instead of installing
+  --debug          Enable debug output
+  --trace          Enable shell tracing (set -x)
   -h, --help       Show this help
 
 Installs <TOOL_NAME> from <SERVER_URL>
@@ -31,7 +34,7 @@ USAGE
 }
 
 error_missing_arg() {
-  echo "option '$1' requires an argument" >&2
+  echo_error "option '$1' requires an argument"
   usage
   return 2
 }
@@ -40,31 +43,9 @@ error_missing_arg() {
 download_file() {
   # Use positional parameters directly to avoid 'local' in POSIX sh
   # $1 = url, $2 = target, $3 = downloader
-
-  case "$3" in
-    curl)
-      if curl -fsSL "$1" -o "$2"
-      then
-        chmod +x "$2"
-        return 0
-      else
-        return 1
-      fi
-      ;;
-    wget)
-      if wget -q "$1" -O "$2"
-      then
-        chmod +x "$2"
-        return 0
-      else
-        return 1
-      fi
-      ;;
-    *)
-      echo_error "Unknown downloader: $3"
-      return 1
-      ;;
-  esac
+  
+  # Use the common download_file function from lib/download.sh
+  download_file_impl "$1" "$2" "$3"
 }
 
 # Parse arguments
@@ -92,17 +73,25 @@ do
       UNINSTALL=1
       shift
       ;;
+    --debug)
+      DEBUG=1
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
       ;;
     -*)
-      echo "unknown option: $1" >&2
+      echo_error "unknown option: $1"
       usage
       exit 2
       ;;
     *)
-      echo "unexpected argument: $1" >&2
+      echo_error "unexpected argument: $1"
       usage
       exit 2
       ;;

@@ -9,10 +9,20 @@
 
 set -eu
 
+SCRIPT_NAME="poorcurl"
+
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+# shellcheck disable=SC1091  # File is included via templating
+. lib/download.sh # <TEMPLATE>
+
 usage() {
-  echo "Usage: poorcurl [options] URL" >&2
+  echo "Usage: ${SCRIPT_NAME} [--debug] [--trace] [options] URL" >&2
   echo
-  echo "Supported (subset):" >&2
+  echo "Options:" >&2
+  echo "  --debug                Enable debug output" >&2
+  echo "  --trace                Enable shell tracing (set -x)" >&2
   echo "  -s                     silent" >&2
   echo "  -S                     show errors (useful with -s)" >&2
   echo "  -L                     follow redirects" >&2
@@ -33,12 +43,13 @@ usage() {
   echo "  -h, --help             this help" >&2
 }
 
-# Detect wget feature support once
+# Detect wget feature support
 wget_has() {
   # Detect support by looking at help text (works on GNU and BusyBox).
   wget --help 2>&1 | grep -Eq -- "[[:space:]]$1([=[:space:]]|$)"
 }
 
+# Get wget flags with fallbacks for different implementations
 WGET_SRVR="$([ "$(wget_has --server-response && echo y || echo n)" = y ] && echo '--server-response' || echo '-S')"
 WGET_REDIRECT="$([ "$(wget_has --max-redirect && echo y || echo n)" = y ] && echo '--max-redirect=20' || echo '')"
 WGET_NOCHK="$([ "$(wget_has --no-check-certificate && echo y || echo n)" = y ] && echo '--no-check-certificate' || echo '')"
@@ -48,6 +59,7 @@ WGET_RETRY="$([ "$(wget_has --tries && echo y || echo n)" = y ] && echo '--tries
 WGET_UA="$([ "$(wget_has --user-agent && echo y || echo n)" = y ] && echo '--user-agent' || echo '')"
 WGET_HEADER="$([ "$(wget_has --header && echo y || echo n)" = y ] && echo '--header' || echo '')"
 WGET_POSTDATA="$([ "$(wget_has --post-data && echo y || echo n)" = y ] && echo '--post-data' || echo '')"
+
 # Auth flags: GNU has --http-user/--http-password; BusyBox has --user=USER:PASSWORD
 if wget_has --http-user && wget_has --http-password
 then
@@ -59,15 +71,15 @@ else
 fi
 
 outfile=
-remote_name=false
-quiet=false
-showerr=false
-redir=false
+remote_name=
+quiet=
+showerr=
+redir=
 postdata=
 headers=
-head_only=false
-fail=false
-insecure=false
+head_only=
+fail=
+insecure=
 user_agent=
 auth=
 max_time=
@@ -82,32 +94,41 @@ url=
 while [ $# -gt 0 ]
 do
   case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
       ;;
     --max-time)
-      [ $# -ge 2 ] || { echo "curl: --max-time needs seconds" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo_error "curl: --max-time needs seconds"; exit 2; }
       max_time="$2"
       shift 2
       ;;
     --connect-timeout)
-      [ $# -ge 2 ] || { echo "curl: --connect-timeout needs seconds" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo_error "curl: --connect-timeout needs seconds"; exit 2; }
       connect_timeout="$2"
       shift 2
       ;;
     --retry)
-      [ $# -ge 2 ] || { echo "curl: --retry needs count" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo_error "curl: --retry needs count"; exit 2; }
       retries="$2"
       shift 2
       ;;
     -w)
-      [ $# -ge 2 ] || { echo "curl: -w needs format" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo_error "curl: -w needs format"; exit 2; }
       write_out="$2"
       shift 2
       ;;
     -x)
-      [ $# -ge 2 ] || { echo "curl: -x needs proxy URL" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo_error "curl: -x needs proxy URL"; exit 2; }
       proxy="$2"
       shift 2
       ;;
@@ -123,13 +144,34 @@ do
         c=${opts%"${opts#?}"}
         rest=${opts#?}
         case "$c" in
-          s) quiet=true; opts="${rest}" ;;
-          S) showerr=true; opts="${rest}" ;;
-          L) redir=true; opts="${rest}" ;;
-          O) remote_name=true; opts="${rest}" ;;
-          I) head_only=true; opts="${rest}" ;;
-          f) fail=true; opts="${rest}" ;;
-          k) insecure=true; opts="${rest}" ;;
+          s)
+            quiet=1
+            opts="${rest}"
+            ;;
+          S)
+            showerr=1
+            opts="${rest}"
+            ;;
+          L)
+            redir=1
+            opts="${rest}"
+            ;;
+          O)
+            remote_name=1
+            opts="${rest}"
+            ;;
+          I)
+            head_only=1
+            opts="${rest}"
+            ;;
+          f)
+            fail=1
+            opts="${rest}"
+            ;;
+          k)
+            insecure=1
+            opts="${rest}"
+            ;;
           A)
             if [ -n "$rest" ]
             then
@@ -137,7 +179,7 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -A needs UA" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -A needs UA"; exit 2; }
               user_agent="$1"
               opts=
             fi
@@ -149,7 +191,7 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -u needs USER:PASS" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -u needs USER:PASS"; exit 2; }
               auth="$1"
               opts=
             fi
@@ -161,7 +203,7 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -m needs seconds" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -m needs seconds"; exit 2; }
               max_time="$1"
               opts=
             fi
@@ -173,7 +215,7 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -o needs file" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -o needs file"; exit 2; }
               outfile="$1"
               opts=
             fi
@@ -185,7 +227,7 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -d needs data" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -d needs data"; exit 2; }
               postdata="$1"
               opts=
             fi
@@ -197,16 +239,16 @@ do
               opts=
             else
               shift
-              [ $# -gt 0 ] || { echo "curl: -H needs header" >&2; exit 2; }
+              [ $# -gt 0 ] || { echo_error "curl: -H needs header"; exit 2; }
               headers="${headers} ${WGET_HEADER}=${1}"
               opts=
             fi
             ;;
           *)
-            echo "curl: unsupported -$c in '$1'" >&2
+            echo_error "curl: unsupported -$c in '$1'"
             usage
             exit 2
-          ;;
+            ;;
         esac
       done
       shift
@@ -229,13 +271,13 @@ fi
 
 # Build wget command
 set -- wget
-$quiet && set -- "$@" -q
-$redir && [ -n "$WGET_REDIRECT" ] && set -- "$@" "${WGET_REDIRECT}"
+[ -n "${quiet:-}" ] && set -- "$@" -q
+[ -n "${redir:-}" ] && [ -n "$WGET_REDIRECT" ] && set -- "$@" "${WGET_REDIRECT}"
 [ -n "$postdata" ] && set -- "$@" "$WGET_POSTDATA=${postdata}"
 # shellcheck disable=SC2086 # headers contains multiple arguments
 [ -n "$headers" ] && set -- "$@" ${headers}
-$head_only && set -- "$@" "${WGET_SRVR}" --spider
-$insecure && [ -n "$WGET_NOCHK" ] && set -- "$@" "${WGET_NOCHK}"
+[ -n "${head_only:-}" ] && set -- "$@" "${WGET_SRVR}" --spider
+[ -n "${insecure:-}" ] && [ -n "$WGET_NOCHK" ] && set -- "$@" "${WGET_NOCHK}"
 [ -n "$user_agent" ] && [ -n "$WGET_UA" ] && set -- "$@" "$WGET_UA=${user_agent}"
 if [ -n "$auth" ]
 then
@@ -259,7 +301,7 @@ then
 fi
 
 # Output selection
-if $remote_name
+if [ -n "${remote_name:-}" ]
 then
   : # default wget behavior uses remote name
 elif [ -n "${outfile:-}" ]
@@ -270,11 +312,11 @@ else
 fi
 
 # --fail emulation needs status; also -w http_code needs status
-need_status=false
-$fail && need_status=true
-[ "${write_out:-}" = "%{http_code}" ] && need_status=true
+need_status=
+[ -n "${fail:-}" ] && need_status=1
+[ "${write_out:-}" = "%{http_code}" ] && need_status=1
 
-if $need_status && ! $head_only
+if [ -n "${need_status:-}" ] && [ -z "${head_only:-}" ]
 then
   # capture headers to parse status (stderr) and body (stdout)
   out=$(mktemp)
@@ -282,16 +324,16 @@ then
   trap 'rm -f "$out" "$err"' EXIT
   if ! "$@" "${WGET_SRVR}" "$url" >"$out" 2>"$err"
   then
-    $showerr && cat "$err" >&2
+    [ -n "${showerr:-}" ] && cat "$err" >&2
     exit 1
   fi
 
   status=$(grep '^  HTTP/' "$err" | tail -1 | awk '{print $2}')
   [ -z "$status" ] && status=000
 
-  if $fail && [ "$status" -ge 400 ] 2>/dev/null
+  if [ -n "${fail:-}" ] && [ "$status" -ge 400 ] 2>/dev/null
   then
-    $showerr && echo "curl: (22) HTTP status $status" >&2
+    [ -n "${showerr:-}" ] && echo_error "curl: (22) HTTP status $status"
     exit 22
   fi
 
@@ -305,14 +347,14 @@ then
 
 else
   # Simple path (maybe header-only or no fail/w)
-  if [ "${write_out:-}" = "%{http_code}" ] && $head_only
+  if [ "${write_out:-}" = "%{http_code}" ] && [ -n "${head_only:-}" ]
   then
     # get status from HEAD-ish request
     err=$(mktemp)
     trap 'rm -f "$err"' EXIT
     if ! "$@" "$url" 2>"$err"
     then
-      $showerr && cat "$err" >&2
+      [ -n "${showerr:-}" ] && cat "$err" >&2
       exit 1
     fi
     status=$(grep '^  HTTP/' "$err" | tail -1 | awk '{print $2}')

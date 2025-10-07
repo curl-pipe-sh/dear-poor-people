@@ -21,6 +21,7 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Dependencies**: Manage with `uv`, pin versions in pyproject.toml
 - **Docker**: Use `hadolint` for Dockerfile linting
 - **Shell scripts**: Use `shellcheck` for shell script linting
+  - All `poor*` scripts in this repository are POSIX `sh`
 
 ### File Organization
 
@@ -64,6 +65,8 @@ This document provides guidelines for AI agents working on the poor-tools web in
 
 - **Templating**: Support `# INCLUDE_FILE: path/to/file.sh` directives
 - **Library functions**: Place reusable functions in `lib/`
+- **Library usage**: Source shared helpers with `. lib/<file>.sh # <TEMPLATE>` so the
+  web installer can inline them automatically
 - **Style**: Follow existing poor-tools style (POSIX shell where possible)
 - **Comments**: Use meaningful comments for complex logic
 - **Variable naming**: Use UPPERCASE for global variables, lowercase for local variables
@@ -123,6 +126,34 @@ This document provides guidelines for AI agents working on the poor-tools web in
   # Avoid:
   var1="one"; var2="two"
   case "$var" in one) echo "xxxx" ;; two) echo "yyyy" ;; esac
+  ```
+- **Boolean variables**: Use unset/empty for false and non-empty for true (typically "1"):
+  ```bash
+  # Good:
+  THING=1
+  if [ -n "${THING:-}" ]
+  then
+    echo "thing is enabled"
+  fi
+
+  # Also good (test for set/unset):
+  if [ "${THING+set}" = "set" ]
+  then
+    echo "thing is set"
+  fi
+
+  # Good (test for false/unset):
+  if [ -z "${THING:-}" ]
+  then
+    echo "thing is disabled or unset"
+  fi
+
+  # Avoid (string comparison):
+  THING="true"
+  if [ "$THING" = "true" ]
+  then
+    echo "thing is enabled"
+  fi
   ```
 - **Function exits**: Use `return` in functions, `exit` only from main script flow
 - **Avoid exit in functions**: Never use `exit` within functions - use `return` instead

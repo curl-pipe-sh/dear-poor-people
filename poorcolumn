@@ -5,22 +5,40 @@
 
 set -eu
 
+# shellcheck disable=SC2034  # Used by usage function
+SCRIPT_NAME="poorcolumn"
+
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+
 usage() {
-  cat <<'USAGE' >&2
-Usage: poorcolumn [-t] [-s SEPARATOR] [FILE...]
+  cat <<USAGE >&2
+Usage: ${SCRIPT_NAME} [--debug] [--trace] [-t] [-s SEPARATOR] [FILE...]
 Align input into columns (table layout only).
-  -t             align fields as a table (accepted for compatibility)
-  -s SEPARATOR   split input using SEPARATOR instead of whitespace
-  -h, --help     show this help
+  --debug            Enable debug output
+  --trace            Enable shell tracing (set -x)
+  -t                 align fields as a table (accepted for compatibility)
+  -s SEPARATOR       split input using SEPARATOR instead of whitespace
+  -h, --help         show this help
 USAGE
 }
 
 SEP=''  # custom separator (literal string)
-SEP_SET=0
+SEP_SET=
 
 while [ $# -gt 0 ]
 do
   case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -32,7 +50,7 @@ do
     -s)
       if [ $# -lt 2 ]
       then
-        echo "poorcolumn: -s requires an argument" >&2
+        echo_error "poorcolumn: -s requires an argument"
         usage
         exit 2
       fi
@@ -44,7 +62,7 @@ do
       SEP="${1#-s}"
       if [ -z "$SEP" ]
       then
-        echo "poorcolumn: -s requires an argument" >&2
+        echo_error "poorcolumn: -s requires an argument"
         usage
         exit 2
       fi
@@ -56,7 +74,7 @@ do
       break
       ;;
     -*)
-      echo "poorcolumn: unsupported flag: $1" >&2
+      echo_error "poorcolumn: unsupported flag: $1"
       usage
       exit 2
       ;;
@@ -64,18 +82,17 @@ do
       break
       ;;
   esac
-
 done
 
-if [ "$SEP_SET" -eq 1 ] && [ -z "$SEP" ]
+if [ -n "${SEP_SET:-}" ] && [ -z "$SEP" ]
 then
-  echo "poorcolumn: separator cannot be empty" >&2
+  echo_error "poorcolumn: separator cannot be empty"
   exit 2
 fi
 
-awk -v SEP="$SEP" -v SEP_SET="$SEP_SET" '
+awk -v SEP="$SEP" -v SEP_SET="${SEP_SET:-}" '
 BEGIN {
-  sep_set = (SEP_SET + 0) != 0
+  sep_set = (SEP_SET != "")
   colsep = "  "
   FS = "[[:space:]]+"
 }

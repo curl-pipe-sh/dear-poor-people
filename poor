@@ -1,0 +1,454 @@
+#!/usr/bin/env sh
+# description: busybox-style multiplexer for poor-tools
+# icon: mdi:toolbox
+
+set -eu
+
+# Source shared libraries - these lines get replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/utils.sh # <TEMPLATE>
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+# shellcheck disable=SC1091  # File is included via templating
+. lib/download.sh # <TEMPLATE>
+
+# shellcheck disable=SC2034  # Used by echo.sh functions
+SCRIPT_NAME="poor"
+
+usage() {
+  cat <<USAGE >&2
+Usage:
+  ${SCRIPT_NAME} [--debug] [--trace] TOOL [ARGS...]
+  curl -sSL <server>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
+
+Run poor-tools without installing each script. Behaves a bit like busybox:
+  - "${SCRIPT_NAME} curl ..." runs poorcurl
+  - Symlink ${SCRIPT_NAME} to "curl" so running "curl" executes ${SCRIPT_NAME} curl
+  - "${SCRIPT_NAME} install --dest ~/.local/bin" wraps poor-installer
+
+Options:
+  --debug             Enable debug output
+  --trace             Enable shell tracing (set -x)
+  -h, --help          Show this help
+
+Environment:
+  POOR_BASE_URL       Override the server or directory to fetch tools from
+  POOR_TOOL_DIR       Directory containing already downloaded poor* scripts
+  POOR_CACHE_DIR      Cache directory for downloaded scripts
+  POOR_DOWNLOADER     Force downloader (curl or wget)
+  POOR_REFRESH        If set to 1, always redownload before running
+  POOR_NO_CACHE       If set to 1, do not reuse cached downloads
+USAGE
+}
+
+ensure_cache_dir() {
+  if [ -n "${POOR_CACHE_DIR-}" ]
+  then
+    CACHE_DIR=$POOR_CACHE_DIR
+  else
+    if [ -n "${XDG_CACHE_HOME-}" ]
+    then
+      CACHE_DIR=$XDG_CACHE_HOME/poor-tools
+    else
+      if [ -n "${HOME-}" ]
+      then
+        CACHE_DIR=$HOME/.cache/poor-tools
+      else
+        CACHE_DIR=/tmp/poor-tools-cache
+      fi
+    fi
+  fi
+
+  mkdir -p "$CACHE_DIR"
+  printf '%s' "$CACHE_DIR"
+}
+
+strip_trailing_slash() {
+  VALUE=$1
+  case "$VALUE" in
+    */)
+      printf '%s' "${VALUE%/}"
+      ;;
+    *)
+      printf '%s' "$VALUE"
+      ;;
+  esac
+}
+
+build_cache_path() {
+  CACHE_DIR=$(ensure_cache_dir)
+  TARGET=$1
+  printf '%s/%s' "$CACHE_DIR" "$TARGET"
+}
+
+trap_cleanup_prepare() {
+  if [ "${TRAP_INSTALLED-}" = "1" ]
+  then
+    return
+  fi
+
+  TRAP_INSTALLED=1
+  trap 'cleanup_tmp "$TMP_DOWNLOAD"' EXIT INT TERM
+}
+
+cleanup_tmp() {
+  TMP_FILE=$1
+  if [ -n "$TMP_FILE" ] && [ -f "$TMP_FILE" ]
+  then
+    rm -f "$TMP_FILE"
+  fi
+}
+
+finalize_download() {
+  TMP_FILE=$1
+  DEST_PATH=$2
+  EXEC_FLAG=$3
+
+  mv "$TMP_FILE" "$DEST_PATH"
+  if [ "$EXEC_FLAG" = "1" ]
+  then
+    chmod 755 "$DEST_PATH"
+  else
+    chmod 644 "$DEST_PATH"
+  fi
+}
+
+run_downloader() {
+  URL=$1
+  DEST_PATH=$2
+  EXEC_FLAG=$3
+
+  DOWNLOADER=$(select_downloader_impl) || return 1
+
+  DEST_DIR=$(dirname "$DEST_PATH")
+  mkdir -p "$DEST_DIR"
+
+  TMP_DOWNLOAD=${DEST_PATH}.tmp.$$
+  trap_cleanup_prepare
+
+  : > "$TMP_DOWNLOAD"
+
+  if download_file_impl "$URL" "$TMP_DOWNLOAD" "$DOWNLOADER"
+  then
+    finalize_download "$TMP_DOWNLOAD" "$DEST_PATH" "$EXEC_FLAG"
+    TMP_DOWNLOAD=""
+    return 0
+  fi
+
+  cleanup_tmp "$TMP_DOWNLOAD"
+  TMP_DOWNLOAD=""
+  return 1
+}
+
+download_from_base() {
+  DEST_PATH=$1
+  EXEC_FLAG=$2
+  REMOTE_PATH=$3
+
+  case "$BASE_URL" in
+    *://*)
+      BASE=$(strip_trailing_slash "$BASE_URL")
+      URL=$BASE/$REMOTE_PATH
+      if run_downloader "$URL" "$DEST_PATH" "$EXEC_FLAG"
+      then
+        return 0
+      fi
+      ;;
+    *)
+      SOURCE_DIR=$(strip_trailing_slash "$BASE_URL")
+      SOURCE_PATH=$SOURCE_DIR/$REMOTE_PATH
+      if [ -f "$SOURCE_PATH" ]
+      then
+        DEST_DIR=$(dirname "$DEST_PATH")
+        mkdir -p "$DEST_DIR"
+        cp "$SOURCE_PATH" "$DEST_PATH"
+        if [ "$EXEC_FLAG" = "1" ]
+        then
+          chmod 755 "$DEST_PATH"
+        else
+          chmod 644 "$DEST_PATH"
+        fi
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
+download_candidates() {
+  DEST_PATH=$1
+  EXEC_FLAG=$2
+  shift
+  shift
+
+  while [ $# -gt 0 ]
+  do
+    REMOTE_PATH=$1
+    shift
+    if download_from_base "$DEST_PATH" "$EXEC_FLAG" "$REMOTE_PATH"
+    then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+find_dependencies() {
+  SCRIPT_FILE=$1
+  (
+    while IFS= read -r LINE
+    do
+      case "$LINE" in
+        "# INCLUDE_FILE:"*)
+          INCLUDE=${LINE#\# INCLUDE_FILE:}
+          INCLUDE=${INCLUDE# }
+          if [ -n "$INCLUDE" ]
+          then
+            printf '%s\n' "$INCLUDE"
+          fi
+          ;;
+        *"# <TEMPLATE>"*)
+          # shellcheck disable=SC2086
+          set -- $LINE
+          if [ $# -ge 2 ]
+          then
+            FIRST_WORD=$1
+            SECOND_WORD=$2
+            if [ "$FIRST_WORD" = "." ] || [ "$FIRST_WORD" = "source" ]
+            then
+              case "$SECOND_WORD" in
+                lib/*)
+                  printf '%s\n' "$SECOND_WORD"
+                  ;;
+              esac
+            fi
+          fi
+          ;;
+      esac
+    done < "$SCRIPT_FILE"
+  )
+}
+
+ensure_dependencies() {
+  SCRIPT_FILE=$1
+  DEPENDENCIES=$(find_dependencies "$SCRIPT_FILE")
+  if [ -z "$DEPENDENCIES" ]
+  then
+    return 0
+  fi
+
+  SCRIPT_DIRNAME=$(dirname "$SCRIPT_FILE")
+
+  for DEP in $DEPENDENCIES
+  do
+    TARGET_PATH=$SCRIPT_DIRNAME/$DEP
+    if [ -f "$TARGET_PATH" ]
+    then
+      continue
+    fi
+
+    if download_candidates "$TARGET_PATH" 0 "$DEP"
+    then
+      ensure_dependencies "$TARGET_PATH"
+      continue
+    fi
+
+    echo_error "poor: failed to fetch dependency $DEP"
+    return 1
+  done
+
+  return 0
+}
+
+normalize_tool_name() {
+  REQUEST=$1
+
+  case "$REQUEST" in
+    "")
+      return 1
+      ;;
+    poor|poor.sh)
+      return 1
+      ;;
+    install|installer)
+      printf '%s' "poor-installer"
+      return 0
+      ;;
+    poor-install|poor-installer)
+      printf '%s' "poor-installer"
+      return 0
+      ;;
+  esac
+
+  case "$REQUEST" in
+    poor-*)
+      STRIPPED=${REQUEST#poor-}
+      REQUEST=$STRIPPED
+      ;;
+  esac
+
+  case "$REQUEST" in
+    poor*)
+      printf '%s' "$REQUEST"
+      return 0
+      ;;
+  esac
+
+  printf '%s' "poor$REQUEST"
+  return 0
+}
+
+resolve_invocation() {
+  RAW_NAME=$1
+
+  case "$RAW_NAME" in
+    sh|dash|bash|ksh|mksh|zsh)
+      printf '%s' "poor"
+      return 0
+      ;;
+  esac
+
+  printf '%s' "$RAW_NAME"
+}
+
+DEFAULT_BASE_URL="<BASE_URL>"
+if [ "$DEFAULT_BASE_URL" = "<BASE_URL>" ]
+then
+  DEFAULT_BASE_URL="https://poor.tools"
+fi
+
+if [ -n "${POOR_BASE_URL-}" ]
+then
+  BASE_URL=$POOR_BASE_URL
+else
+  BASE_URL=$DEFAULT_BASE_URL
+fi
+
+SCRIPT_DIR=""
+if [ -n "${POOR_TOOL_DIR-}" ]
+then
+  SCRIPT_DIR=$POOR_TOOL_DIR
+else
+  if RESOLVED_DIR=$(get_script_dir "$0" 2>/dev/null)
+  then
+    if [ -n "$RESOLVED_DIR" ]
+    then
+      SCRIPT_DIR=$RESOLVED_DIR
+    fi
+  fi
+fi
+
+SELF_NAME_RAW=$(basename "$0")
+SELF_NAME=$(resolve_invocation "$SELF_NAME_RAW")
+
+if [ "$SELF_NAME" = "poor" ]
+then
+  if [ $# -eq 0 ]
+  then
+    usage
+    exit 0
+  fi
+
+  case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+    list)
+      if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR" ]
+      then
+        for FILE in "$SCRIPT_DIR"/poor*
+        do
+          if [ -f "$FILE" ]
+          then
+            BASENAME=$(basename "$FILE")
+            printf '%s\n' "$BASENAME"
+          fi
+        done
+      fi
+
+      if [ -n "${BASE_URL}" ]
+      then
+        printf '%s\n' "Base: $BASE_URL"
+      fi
+      exit 0
+      ;;
+    -*)
+      echo_error "poor: unknown option: $1"
+      usage
+      exit 1
+      ;;
+  esac
+
+  TOOL_REQUEST=$1
+  shift
+else
+  TOOL_REQUEST=$SELF_NAME
+fi
+
+TARGET_NAME=$(normalize_tool_name "$TOOL_REQUEST" || printf '')
+if [ -z "$TARGET_NAME" ]
+then
+  echo_error "poor: unable to determine tool for '$TOOL_REQUEST'"
+  exit 1
+fi
+
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/$TARGET_NAME" ]
+then
+  exec "$SCRIPT_DIR/$TARGET_NAME" "$@"
+fi
+
+if command -v "$TARGET_NAME" >/dev/null 2>&1
+then
+  EXEC_PATH=$(command -v "$TARGET_NAME")
+  exec "$EXEC_PATH" "$@"
+fi
+
+CACHE_PATH=$(build_cache_path "$TARGET_NAME")
+
+if [ -n "${POOR_REFRESH:-}" ] || [ -n "${POOR_NO_CACHE:-}" ]
+then
+  rm -f "$CACHE_PATH"
+fi
+
+if [ -z "${POOR_NO_CACHE:-}" ] && [ -f "$CACHE_PATH" ]
+then
+  chmod 755 "$CACHE_PATH"
+  ensure_dependencies "$CACHE_PATH"
+  exec "$CACHE_PATH" "$@"
+fi
+
+PRIMARY_PATH=$TARGET_NAME
+SECONDARY_PATH=""
+case "$TARGET_NAME" in
+  poor*)
+    ALT_NAME=${TARGET_NAME#poor}
+    if [ -n "$ALT_NAME" ]
+    then
+      SECONDARY_PATH=$ALT_NAME
+    fi
+    ;;
+esac
+
+if [ -n "$SECONDARY_PATH" ]
+then
+  download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH" "$SECONDARY_PATH"
+else
+  download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH"
+fi
+
+ensure_dependencies "$CACHE_PATH"
+
+chmod 755 "$CACHE_PATH"
+exec "$CACHE_PATH" "$@"
