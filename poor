@@ -1133,10 +1133,10 @@ get_remote_tools() {
 
       if [ "$DOWNLOADER" = "curl" ]
       then
-        REMOTE_LIST=$(curl -fsSL "$LIST_URL" 2>/dev/null | grep "^poor" | sort)
+        REMOTE_LIST=$(curl -fsSL "$LIST_URL" 2>/dev/null)
       elif [ "$DOWNLOADER" = "wget" ]
       then
-        REMOTE_LIST=$(wget -qO- "$LIST_URL" 2>/dev/null | grep "^poor" | sort)
+        REMOTE_LIST=$(wget -qO- "$LIST_URL" 2>/dev/null)
       fi
       ;;
     *)

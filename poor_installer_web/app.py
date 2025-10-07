@@ -8,7 +8,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 app = FastAPI(
     title="poor-tools Web Installer",
@@ -606,10 +606,39 @@ async def get_install_all(
     )
 
 
-@app.get("/list", response_class=PlainTextResponse)
-@app.head("/", response_class=PlainTextResponse)
+@app.get("/list")
 async def list_tools(request: Request) -> Response:
-    """List available tools in plain text format."""
+    """List available tools - format depends on Accept header."""
+    # Check Accept header to determine response format
+    accept_header = request.headers.get("accept", "")
+    if "application/json" in accept_header:
+        # Return JSON format (same as /list/json)
+        server_url = get_server_url(request)
+        tools = get_all_tools_metadata()
+
+        return JSONResponse({
+            "server_url": server_url,
+            "version": get_current_version(),
+            "tools": tools,
+            "count": len(tools),
+        })
+
+    # Return simple tool list (one tool per line) for shell scripting
+    tools = discover_tools()
+    tools_list = "\n".join(sorted(tools)) + "\n"
+
+    return Response(content=tools_list, media_type="text/plain; charset=utf-8")
+
+
+@app.head("/", response_class=PlainTextResponse)
+async def head_root(request: Request) -> Response:
+    """Handle HEAD requests to root."""
+    return Response(content="", media_type="text/plain; charset=utf-8")
+
+
+@app.get("/help", response_class=PlainTextResponse)
+async def help_tools(request: Request) -> Response:
+    """Show help and usage instructions for poor-tools."""
     server_url = get_server_url(request)
     tools = discover_tools()
 
@@ -628,7 +657,7 @@ async def list_tools(request: Request) -> Response:
         tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
         installer_links.append(f"- {server_url}/{display_name}/install")
 
-    tools_list = f"""# poor-tools Available Tools
+    help_content = f"""# poor-tools Available Tools
 
 Available tools and endpoints:
 
@@ -654,9 +683,15 @@ curl -sSL {server_url}/install | sh
 
 # Install with custom destination:
 curl -sSL {server_url}/curl/install | sh -s -- --dest /usr/local/bin
+
+# Get simple tool list for scripting:
+curl -sSL {server_url}/list
+
+# Get detailed tool metadata:
+curl -sSL {server_url}/list -H "Accept: application/json"
 """
 
-    return Response(content=tools_list, media_type="text/plain; charset=utf-8")
+    return Response(content=help_content, media_type="text/plain; charset=utf-8")
 
 
 @app.get("/list/json")
