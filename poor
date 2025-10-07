@@ -20,6 +20,7 @@ usage() {
 Usage:
   ${SCRIPT_NAME} [--debug] [--trace] TOOL [ARGS...]
   ${SCRIPT_NAME} install [OPTIONS] [TOOL...]
+  ${SCRIPT_NAME} uninstall [OPTIONS] [TOOL...]
   ${SCRIPT_NAME} self-update [--force]
   curl -sSL <BASE_URL>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
 
@@ -30,6 +31,7 @@ Run poor-tools without installing each script. Behaves a bit like busybox:
 
 Commands:
   install             Install poor-tools into a directory
+  uninstall           Remove poor-tools from a directory
   self-update         Update the poor script itself
 
 Options:
@@ -368,7 +370,7 @@ handle_install_command() {
   shift  # remove "install" from arguments
   
   # Initialize variables for install functionality
-  DEST=""
+  TARGET_DEST=""
   EMULATE="false"
   IGNORE_ARGS=""
   CLEAR_DEST="false"
@@ -386,11 +388,11 @@ handle_install_command() {
           usage_install
           return 2
         fi
-        DEST="$1"
+        TARGET_DEST="$1"
         shift
         ;;
       --dest=*)
-        DEST="${1#--dest=}"
+        TARGET_DEST="${1#--dest=}"
         shift
         ;;
       --emulate)
@@ -449,33 +451,33 @@ handle_install_command() {
     shift
   done
 
-  # Validate destination
-  if [ -z "$DEST" ]
+  # Validate destination - check command line arg first, then environment variable
+  if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
   then
-    if [ -n "${DEST:-}" ]
-    then
-      DEST="$DEST"
-    else
-      echo_error "destination required (--dest or DEST env var)"
-      usage_install
-      return 2
-    fi
+    TARGET_DEST="$DEST"
+  fi
+  
+  if [ -z "$TARGET_DEST" ]
+  then
+    echo_error "destination required (--dest or DEST env var)"
+    usage_install
+    return 2
   fi
 
   # Setup destination directory
   if [ "$UNINSTALL" = "true" ]
   then
-    if [ ! -d "$DEST" ]
+    if [ ! -d "$TARGET_DEST" ]
     then
-      echo "destination '$DEST' does not exist, nothing to uninstall" >&2
+      echo "destination '$TARGET_DEST' does not exist, nothing to uninstall" >&2
       return 0
     fi
   else
-    mkdir -p "$DEST"
-    if [ "$CLEAR_DEST" = "true" ] && [ -d "$DEST" ]
+    mkdir -p "$TARGET_DEST"
+    if [ "$CLEAR_DEST" = "true" ] && [ -d "$TARGET_DEST" ]
     then
-      find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-      echo "cleared $DEST"
+      find "$TARGET_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+      echo "cleared $TARGET_DEST"
     fi
   fi
 
@@ -597,7 +599,7 @@ handle_install_command() {
         fi
       fi
     fi
-    DEST_PATH="$DEST/$DEST_NAME"
+    DEST_PATH="$TARGET_DEST/$DEST_NAME"
     if [ "$UNINSTALL" = "true" ]
     then
       if [ -e "$DEST_PATH" ]
@@ -666,6 +668,275 @@ available poor* scripts are copied.
 USAGE_INSTALL
 }
 
+usage_uninstall() {
+  cat <<USAGE_UNINSTALL >&2
+Usage: ${SCRIPT_NAME} uninstall [OPTIONS] [TOOL...]
+
+Remove poor-tools from a destination directory.
+
+Options:
+  --dest DIR       Remove from DIR (or set DEST environment variable)
+  --emulate        Strip leading "poor" when looking for installed binaries
+  --clear          Remove DEST directory after uninstall (if empty)
+  --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
+  --skip NAME      Alias for --ignore
+  -h, --help       Show this help
+
+If TOOL arguments are provided, only those tools are removed. Otherwise all
+available poor* scripts are removed from the destination.
+
+Examples:
+  ${SCRIPT_NAME} uninstall --dest ~/.local/bin
+  ${SCRIPT_NAME} uninstall --dest /usr/local/bin poorcurl poornmap
+  ${SCRIPT_NAME} uninstall --emulate --dest ~/.local/bin curl nmap
+USAGE_UNINSTALL
+}
+
+handle_uninstall_command() {
+  shift  # remove "uninstall" from arguments
+  
+  # Initialize variables for uninstall functionality
+  TARGET_DEST=""
+  EMULATE="false"
+  IGNORE_ARGS=""
+  CLEAR_DEST="false"
+  
+  # Parse uninstall options
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --dest)
+        shift
+        if [ $# -eq 0 ]
+        then
+          echo_error "option '--dest' requires an argument"
+          usage_uninstall
+          return 2
+        fi
+        TARGET_DEST="$1"
+        shift
+        ;;
+      --dest=*)
+        TARGET_DEST="${1#--dest=}"
+        shift
+        ;;
+      --emulate)
+        EMULATE="true"
+        shift
+        ;;
+      --clear)
+        CLEAR_DEST="true"
+        shift
+        ;;
+      --ignore|--skip)
+        OPTION_NAME="$1"
+        shift
+        if [ $# -eq 0 ]
+        then
+          echo_error "option '$OPTION_NAME' requires an argument"
+          usage_uninstall
+          return 2
+        fi
+        IGNORE_ARGS="$IGNORE_ARGS $1"
+        shift
+        ;;
+      --ignore=*|--skip=*)
+        OPTION_VALUE="${1#*=}"
+        IGNORE_ARGS="$IGNORE_ARGS $OPTION_VALUE"
+        shift
+        ;;
+      -h|--help)
+        usage_uninstall
+        return 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo_error "unknown option '$1'"
+        usage_uninstall
+        return 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  # Collect remaining arguments for tool selection
+  SELECT_ARGS=""
+  while [ $# -gt 0 ]
+  do
+    SELECT_ARGS="$SELECT_ARGS $1"
+    shift
+  done
+
+  # Validate destination - check command line arg first, then environment variable
+  if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
+  then
+    TARGET_DEST="$DEST"
+  fi
+  
+  if [ -z "$TARGET_DEST" ]
+  then
+    echo_error "destination required (--dest or DEST env var)"
+    usage_uninstall
+    return 2
+  fi
+
+  # Check if destination exists
+  if [ ! -d "$TARGET_DEST" ]
+  then
+    echo "destination '$TARGET_DEST' does not exist, nothing to uninstall" >&2
+    return 0
+  fi
+
+  # Initialize source directory and find available scripts
+  initialize_install_source_directory
+  
+  AVAILABLE_SCRIPTS=""
+  for SCRIPT_PATH_CANDIDATE in poor*
+  do
+    if [ -f "$SCRIPT_PATH_CANDIDATE" ]
+    then
+      AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $SCRIPT_PATH_CANDIDATE"
+    fi
+  done
+
+  if [ -z "$AVAILABLE_SCRIPTS" ]
+  then
+    echo "no tools found in current directory" >&2
+    return 1
+  fi
+
+  # Process ignore patterns
+  IGNORE_SCRIPTS=""
+  for NAME_ARG in $IGNORE_ARGS
+  do
+    if [ -z "$NAME_ARG" ]
+    then
+      continue
+    fi
+    if is_pattern "$NAME_ARG"
+    then
+      if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+      then
+        for SCRIPT_CANDIDATE in $MATCHES
+        do
+          if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_CANDIDATE"
+          then
+            IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_CANDIDATE"
+          fi
+        done
+        continue
+      else
+        echo_warning "no tool matches pattern '${NAME_ARG}'"
+        continue
+      fi
+    fi
+    if SCRIPT_MATCH=$(resolve_install_name "$NAME_ARG" 2>/dev/null)
+    then
+      if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_MATCH"
+      then
+        IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_MATCH"
+      fi
+    else
+      echo_warning "no tool matches '${NAME_ARG}'"
+    fi
+  done
+
+  # Process tool selection
+  TO_UNINSTALL=""
+  if [ -n "$SELECT_ARGS" ]
+  then
+    for NAME_ARG in $SELECT_ARGS
+    do
+      if [ -z "$NAME_ARG" ]
+      then
+        continue
+      fi
+      if is_pattern "$NAME_ARG"
+      then
+        if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+        then
+          for SCRIPT_CANDIDATE in $MATCHES
+          do
+            if ! list_contains "$TO_UNINSTALL" "$SCRIPT_CANDIDATE"
+            then
+              TO_UNINSTALL="$TO_UNINSTALL $SCRIPT_CANDIDATE"
+            fi
+          done
+          continue
+        else
+          echo "unknown tool pattern '$NAME_ARG'" >&2
+          return 2
+        fi
+      fi
+      if SCRIPT_MATCH=$(resolve_install_name "$NAME_ARG" 2>/dev/null)
+      then
+        if ! list_contains "$TO_UNINSTALL" "$SCRIPT_MATCH"
+        then
+          TO_UNINSTALL="$TO_UNINSTALL $SCRIPT_MATCH"
+        fi
+      else
+        echo "unknown tool '$NAME_ARG'" >&2
+        return 2
+      fi
+    done
+  else
+    TO_UNINSTALL="$AVAILABLE_SCRIPTS"
+  fi
+
+  # Perform uninstallation
+  REMOVED_COUNT=0
+  for SCRIPT_PATH in $TO_UNINSTALL
+  do
+    if list_contains "$IGNORE_SCRIPTS" "$SCRIPT_PATH"
+    then
+      continue
+    fi
+    BASE_NAME="${SCRIPT_PATH##*/}"
+    DEST_NAME="$BASE_NAME"
+    if [ "$EMULATE" = "true" ]
+    then
+      if [ "$BASE_NAME" != "poor" ]
+      then
+        STRIPPED_NAME="${DEST_NAME#poor}"
+        if [ -n "$STRIPPED_NAME" ]
+        then
+          DEST_NAME="$STRIPPED_NAME"
+        fi
+      fi
+    fi
+    DEST_PATH="$TARGET_DEST/$DEST_NAME"
+    
+    if [ -e "$DEST_PATH" ]
+    then
+      rm -f "$DEST_PATH"
+      echo "removed $DEST_PATH"
+      REMOVED_COUNT=$((REMOVED_COUNT + 1))
+    else
+      echo "warning: not found $DEST_PATH" >&2
+    fi
+  done
+
+  if [ "$REMOVED_COUNT" -eq 0 ]
+  then
+    echo "nothing removed" >&2
+  fi
+  
+  if [ "$CLEAR_DEST" = "true" ]
+  then
+    if ! rmdir "$TARGET_DEST" 2>/dev/null
+    then
+      echo "warning: could not remove '$TARGET_DEST' (not empty?)" >&2
+    else
+      echo "removed directory $TARGET_DEST"
+    fi
+  fi
+}
+
 normalize_tool_name() {
   REQUEST=$1
 
@@ -678,6 +949,10 @@ normalize_tool_name() {
       ;;
     install|installer)
       # Handle install command directly, not as a tool
+      return 1
+      ;;
+    uninstall)
+      # Handle uninstall command directly, not as a tool
       return 1
       ;;
     poor-install|poor-installer)
@@ -799,6 +1074,10 @@ then
       ;;
     install|installer|poor-install|poor-installer)
       handle_install_command "$@"
+      exit $?
+      ;;
+    uninstall)
+      handle_uninstall_command "$@"
       exit $?
       ;;
     self-update)
