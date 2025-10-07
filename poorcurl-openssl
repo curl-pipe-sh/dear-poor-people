@@ -8,198 +8,109 @@
 
 set -eu
 
-# shellcheck disable=SC2034  # Used by usage function
+# Global variables
 SCRIPT_NAME="poorcurl-openssl"
+MAX_REDIRECTS_DEFAULT=5
+
+# Boolean flags: set to "1" when enabled, otherwise unset/empty
+SILENT=""
+SHOW_ERROR=""
+HEAD_ONLY=""
+FAIL_ON_ERROR=""
+FORCE_V4=""
+FORCE_V6=""
+VERBOSE=""
+
+OUTFILE=""
+MAX_REDIRS="${MAX_REDIRECTS_DEFAULT}"
+URL=""
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
 . lib/echo.sh # <TEMPLATE>
-
-MAX_REDIRECTS_DEFAULT=5
-
-# boolean flags: set to "1" when enabled, otherwise unset/empty
-silent=
-show_error=
-head_only=
-fail_on_error=
-force_v4=
-force_v6=
-verbose=
-
-outfile=
-max_redirs=${MAX_REDIRECTS_DEFAULT}
-url=
+# Source utils utilities - this line gets replaced during templating  
+# shellcheck disable=SC1091  # File is included via templating
+. lib/utils.sh # <TEMPLATE>
 
 usage() {
-  echo "Usage: ${SCRIPT_NAME} [--debug] [--trace] [OPTIONS] URL"
-  echo
-  echo "Options:"
-  echo "  --debug               Enable debug output"
-  echo "  --trace               Enable shell tracing (set -x)"
-  echo "  -s                    Silent (suppress TLS chatter)"
-  echo "  -S                    Show errors (useful with -s)"
-  echo "  -o FILE               Write body to FILE"
-  echo "  -I                    Headers only"
-  echo "  -L                    Follow redirects (default: ${MAX_REDIRECTS_DEFAULT})"
-  echo "  --max-redirs N        Set redirect limit"
-  echo "  -f                    Fail on HTTP >= 400 (exit 22)"
-  echo "  -4                    Force IPv4 (require A record; else exit 6)"
-  echo "  -6                    Force IPv6 (require AAAA; else exit 6; no IPv4-mapped)"
-  echo "  -v, --verbose         Verbose (DNS, s_client args, redirects)"
-  echo "  -h, --help            Show this help"
+  cat <<USAGE >&2
+Usage: ${SCRIPT_NAME} [--debug] [--trace] [OPTIONS] URL
+
+Options:
+  --debug               Enable debug output
+  --trace               Enable shell tracing (set -x)
+  -s                    Silent (suppress TLS chatter)
+  -S                    Show errors (useful with -s)
+  -o FILE               Write body to FILE
+  -I                    Headers only
+  -L                    Follow redirects (default: ${MAX_REDIRECTS_DEFAULT})
+  --max-redirs N        Set redirect limit
+  -f                    Fail on HTTP >= 400 (exit 22)
+  -4                    Force IPv4 (require A record; else exit 6)
+  -6                    Force IPv6 (require AAAA; else exit 6; no IPv4-mapped)
+  -v, --verbose         Verbose (DNS, s_client args, redirects)
+  -h, --help            Show this help
+USAGE
 }
 
 logv() {
-  if [ -n "$verbose" ]
+  if [ -n "$VERBOSE" ]
   then
     echo ">>> $*" >&2
   fi
 }
 
-# -------- arg parsing --------
-while [ $# -gt 0 ]
-do
-  case "$1" in
-    --debug)
-      DEBUG=1
-      export DEBUG  # Export for use by echo.sh functions
-      shift
-      ;;
-    --trace)
-      set -x
-      shift
-      ;;
-    -s)
-      silent=1
-      shift
-      ;;
-    -S)
-      show_error=1
-      shift
-      ;;
-    -o)
-      shift
-      outfile="${1:-}"
-      if [ -z "${outfile:-}" ]
-      then
-        usage
-        exit 2
-      fi
-      shift
-      ;;
-    -I)
-      head_only=1
-      shift
-      ;;
-    -L)
-      # following is on by default; keep switch for compatibility
-      shift
-      ;;
-    --max-redirs)
-      shift
-      max_redirs="${1:-}"
-      if [ -z "${max_redirs:-}" ]
-      then
-        usage
-        exit 2
-      fi
-      shift
-      ;;
-    -f)
-      fail_on_error=1
-      shift
-      ;;
-    -4)
-      force_v4=1
-      force_v6=
-      shift
-      ;;
-    -6)
-      force_v6=1
-      force_v4=
-      shift
-      ;;
-    -v|--verbose)
-      verbose=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    -*)
-      usage
-      exit 2
-      ;;
-    *)
-      url="$1"
-      shift
-      break
-      ;;
-  esac
-done
+# Helper functions for HTTP processing
 
-if [ -z "${url:-}" ]
-then
-  usage
-  exit 2
-fi
-
-# default to https if no scheme
-case "$url" in
-  http://*|https://*) : ;;
-  *) url="https://${url}" ;;
-esac
-
-# -------- helpers --------
+# Parse URL into components
 parse_url() {
-  _u="$1"
-  case "$_u" in
-    https://*) proto=https; rest="${_u#https://}" ;;
-    http://*)  proto=http;  rest="${_u#http://}"  ;;
-    *)         proto=https; rest="${_u}"          ;;
+  U_ARG="$1"
+  case "$U_ARG" in
+    https://*) PROTO=https; REST="${U_ARG#https://}" ;;
+    http://*)  PROTO=http;  REST="${U_ARG#http://}"  ;;
+    *)         PROTO=https; REST="${U_ARG}"          ;;
   esac
 
-  case "$rest" in
-    */*) hostport=${rest%%/*}; path="/${rest#*/}" ;;
-    *)   hostport=${rest};        path="/"        ;;
+  case "$REST" in
+    */*) HOSTPORT="${REST%%/*}"; PATH="/${REST#*/}" ;;
+    *)   HOSTPORT="${REST}";     PATH="/"           ;;
   esac
 
-  case "$hostport" in
-    *:*) host=${hostport%:*}; port=${hostport#*:} ;;
-    *)   host=${hostport}; [ "$proto" = https ] && port=443 || port=80 ;;
+  case "$HOSTPORT" in
+    *:*) HOST="${HOSTPORT%:*}"; PORT="${HOSTPORT#*:}" ;;
+    *)   HOST="${HOSTPORT}"; [ "$PROTO" = https ] && PORT=443 || PORT=80 ;;
   esac
 
-  printf '%s %s %s %s\n' "$proto" "$host" "$port" "$path"
+  printf '%s %s %s %s\n' "$PROTO" "$HOST" "$PORT" "$PATH"
 }
 
 resolve_ip_v4() {
-  _host=$1
-  ip=
-  if command -v getent >/dev/null 2>&1
+  HOST_ARG="$1"
+  IP=""
+  if has_command getent
   then
-    ip=$(getent ahostsv4 "$_host" 2>/dev/null | awk 'NF{print $1; exit}')
+    IP=$(getent ahostsv4 "$HOST_ARG" 2>/dev/null | awk 'NF{print $1; exit}')
   fi
 
-  if [ -z "${ip:-}" ] && command -v nslookup >/dev/null 2>&1
+  if [ -z "${IP:-}" ] && has_command nslookup
   then
-    ip=$(nslookup -type=A "$_host" 2>/dev/null | awk '/^Address: /{print $2; exit}')
+    IP=$(nslookup -type=A "$HOST_ARG" 2>/dev/null | awk '/^Address: /{print $2; exit}')
   fi
 
-  if [ -z "${ip:-}" ]
+  if [ -z "${IP:-}" ]
   then
     return 1
   fi
 
-  printf '%s\n' "$ip"
+  printf '%s\n' "$IP"
 }
 
 resolve_ip_v6() {
-  _host=$1
-  ip6=
-  if command -v getent >/dev/null 2>&1
+  HOST_ARG="$1"
+  IP6=""
+  if has_command getent
   then
-    ip6=$(getent ahostsv6 "$_host" 2>/dev/null | awk '
+    IP6=$(getent ahostsv6 "$HOST_ARG" 2>/dev/null | awk '
       {
         ip=$1
         # reject IPv4-mapped (::ffff:a.b.c.d) and ::a.b.c.d
@@ -209,17 +120,17 @@ resolve_ip_v6() {
       }')
   fi
 
-  if [ -z "${ip6:-}" ] && command -v nslookup >/dev/null 2>&1
+  if [ -z "${IP6:-}" ] && has_command nslookup
   then
-    ip6=$(nslookup -type=AAAA "$_host" 2>/dev/null | awk '/has IPv6 address/ {print $NF; exit}')
+    IP6=$(nslookup -type=AAAA "$HOST_ARG" 2>/dev/null | awk '/has IPv6 address/ {print $NF; exit}')
   fi
 
-  if [ -z "${ip6:-}" ]
+  if [ -z "${IP6:-}" ]
   then
     return 1
   fi
 
-  printf '%s\n' "$ip6"
+  printf '%s\n' "$IP6"
 }
 
 bracket_if_ipv6() {
@@ -231,38 +142,38 @@ bracket_if_ipv6() {
 
 join_location() {
   # Inputs: base_proto base_host base_port base_path location
-  bp=$1
-  bh=$2
-  bo=$3
-  bpath=$4
-  loc=$5
+  BP="$1"
+  BH="$2"
+  BO="$3"
+  BPATH="$4"
+  LOC="$5"
 
-  case "$loc" in
+  case "$LOC" in
     https://*|http://*)
-      printf '%s\n' "$loc"
+      printf '%s\n' "$LOC"
       return 0
       ;;
     //*)
-      printf '%s\n' "$bp:${loc}"
+      printf '%s\n' "$BP:${LOC}"
       return 0
       ;;
     /*)
-      printf '%s://%s:%s%s\n' "$bp" "$bh" "$bo" "$loc"
+      printf '%s://%s:%s%s\n' "$BP" "$BH" "$BO" "$LOC"
       return 0
       ;;
     *)
-      base_dir=${bpath%/*}
-      [ -n "$base_dir" ] || base_dir="/"
-      case "$base_dir" in
+      BASE_DIR="${BPATH%/*}"
+      [ -n "$BASE_DIR" ] || BASE_DIR="/"
+      case "$BASE_DIR" in
         */)
           :
           ;;
         *)
-          base_dir="${base_dir}/"
+          BASE_DIR="${BASE_DIR}/"
           ;;
       esac
 
-      printf '%s://%s:%s%s%s\n' "$bp" "$bh" "$bo" "$base_dir" "$loc"
+      printf '%s://%s:%s%s%s\n' "$BP" "$BH" "$BO" "$BASE_DIR" "$LOC"
       return 0
       ;;
   esac
@@ -480,9 +391,127 @@ follow() {
   done
 }
 
-# -------- run --------
-set +e
-follow "$url"
-rc=$?
-set -e
-exit "$rc"
+# Note: This script maintains compatibility with existing lowercase variable names
+# for the complex HTTP functions. A full refactor would update all variables
+# to UPPERCASE but would require extensive testing of the HTTP parsing logic.
+
+main() {
+  # Parse command line arguments and update lowercase variables for compatibility
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --debug)
+        DEBUG=1
+        export DEBUG  # Export for use by echo.sh functions
+        shift
+        ;;
+      --trace)
+        set -x
+        shift
+        ;;
+      -s)
+        SILENT=1
+        silent=1
+        shift
+        ;;
+      -S)
+        SHOW_ERROR=1
+        show_error=1
+        shift
+        ;;
+      -o)
+        shift
+        OUTFILE="${1:-}"
+        outfile="${1:-}"
+        if [ -z "${OUTFILE:-}" ]
+        then
+          usage
+          return 2
+        fi
+        shift
+        ;;
+      -I)
+        HEAD_ONLY=1
+        head_only=1
+        shift
+        ;;
+      -L)
+        # following is on by default; keep switch for compatibility
+        shift
+        ;;
+      --max-redirs)
+        shift
+        MAX_REDIRS="${1:-}"
+        max_redirs="${1:-}"
+        if [ -z "${MAX_REDIRS:-}" ]
+        then
+          usage
+          return 2
+        fi
+        shift
+        ;;
+      -f)
+        FAIL_ON_ERROR=1
+        fail_on_error=1
+        shift
+        ;;
+      -4)
+        FORCE_V4=1
+        force_v4=1
+        FORCE_V6=""
+        force_v6=""
+        shift
+        ;;
+      -6)
+        FORCE_V6=1
+        force_v6=1
+        FORCE_V4=""
+        force_v4=""
+        shift
+        ;;
+      -v|--verbose)
+        VERBOSE=1
+        verbose=1
+        shift
+        ;;
+      -h|--help)
+        usage
+        return 0
+        ;;
+      -*)
+        usage
+        return 2
+        ;;
+      *)
+        URL="$1"
+        url="$1"
+        shift
+        break
+        ;;
+    esac
+  done
+
+  if [ -z "${URL:-}" ]
+  then
+    usage
+    return 2
+  fi
+
+  # default to https if no scheme
+  case "$url" in
+    http://*|https://*) : ;;
+    *) 
+      URL="https://${URL}"
+      url="https://${url}"
+      ;;
+  esac
+
+  # Run the main follow logic
+  set +e
+  follow "$url"
+  RC=$?
+  set -e
+  return "$RC"
+}
+
+main "$@"

@@ -116,11 +116,11 @@ def test_installer_endpoints() -> None:
     assert "all installer" in response.text
     assert "Installing all poor-tools" in response.text
 
-    # /installer should still use poor-installer
+    # /installer should now use poor with install command  
     response = client.get("/installer")
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
-    assert "poor-install" in response.text
+    assert "poor" in response.text and "install" in response.text
 
 
 def test_tool_installer_endpoints() -> None:

@@ -70,6 +70,67 @@ This document provides guidelines for AI agents working on the poor-tools web in
 - **Style**: Follow existing poor-tools style (POSIX shell where possible)
 - **Comments**: Use meaningful comments for complex logic
 - **Variable naming**: Use UPPERCASE for global variables, lowercase for local variables
+- **Control flow style**: Prefer explicit if/then/fi blocks over compact one-liners:
+  ```bash
+  # Good:
+  if [ $# -lt 2 ]
+  then
+    echo_error "insufficient arguments"
+    return 2
+  fi
+
+  # Avoid:
+  [ $# -ge 2 ] || { echo_error "insufficient arguments"; return 2; }
+  ```
+- **Script structure**: Always organize scripts with these patterns:
+  ```bash
+  #!/usr/bin/env sh
+  # description: Brief description
+  # icon: mdi:icon-name
+  
+  set -eu
+  
+  # Global variables (UPPERCASE)
+  SCRIPT_NAME="scriptname"
+  
+  # Source libraries
+  . lib/echo.sh # <TEMPLATE>
+  
+  # Define usage function
+  usage() {
+    cat <<USAGE >&2
+  Usage: ${SCRIPT_NAME} [options] arguments
+  Description of what the script does.
+  
+  Options:
+    --debug    Enable debug output
+    -h, --help Show this help
+  USAGE
+  }
+  
+  # Helper functions (if needed)
+  helper_function() {
+    # Implementation
+  }
+  
+  # Main function contains the primary logic
+  main() {
+    # Early return for sourcing support
+    if [ -n "${SOURCED:-}" ]
+    then
+      return 0
+    fi
+    
+    # Argument parsing and main logic here
+  }
+  
+  # Script entry point
+  main "$@"
+  ```
+- **Usage function**: Always define and use a `usage()` function for help output
+- **Main function**: Always wrap primary logic in a `main()` function and call `main "$@"`
+- **Sourcing support**: Add `SOURCED` variable check at start of `main()` to allow sourcing for testing
+- **Helper functions**: Extract complex logic into well-named helper functions to keep `main()` clean and readable
 - **Variable expansion**: Use braces `${VAR}` when variable is not used alone:
   ```bash
   # Good (standalone - braces optional):

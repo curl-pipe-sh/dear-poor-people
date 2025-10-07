@@ -19,12 +19,18 @@ usage() {
   cat <<USAGE >&2
 Usage:
   ${SCRIPT_NAME} [--debug] [--trace] TOOL [ARGS...]
-  curl -sSL <server>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
+  ${SCRIPT_NAME} install [OPTIONS] [TOOL...]
+  ${SCRIPT_NAME} self-update [--force]
+  curl -sSL <BASE_URL>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
 
 Run poor-tools without installing each script. Behaves a bit like busybox:
   - "${SCRIPT_NAME} curl ..." runs poorcurl
   - Symlink ${SCRIPT_NAME} to "curl" so running "curl" executes ${SCRIPT_NAME} curl
-  - "${SCRIPT_NAME} install --dest ~/.local/bin" wraps poor-installer
+  - "${SCRIPT_NAME} install --dest ~/.local/bin" installs poor-tools
+
+Commands:
+  install             Install poor-tools into a directory
+  self-update         Update the poor script itself
 
 Options:
   --debug             Enable debug output
@@ -54,7 +60,7 @@ ensure_cache_dir() {
       then
         CACHE_DIR=$HOME/.cache/poor-tools
       else
-        CACHE_DIR=/tmp/poor-tools-cache
+        CACHE_DIR=${TMPDIR:-/tmp}/poor-tools-cache
       fi
     fi
   fi
@@ -262,6 +268,404 @@ ensure_dependencies() {
   return 0
 }
 
+# Functions from poor-installer for installation functionality
+list_contains() {
+  LIST="$1"
+  NEEDLE="$2"
+  for ENTRY in $LIST
+  do
+    if [ "$ENTRY" = "$NEEDLE" ]
+    then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_pattern() {
+  case "$1" in
+    *\**|*\?*|*\[*|*\]*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+matches_pattern() {
+  VALUE="$1"
+  PATTERN="$2"
+  # shellcheck disable=SC2254 # PATTERN is intended to be a glob pattern
+  case "$VALUE" in
+    $PATTERN)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+resolve_install_name() {
+  TARGET="$1"
+  for SCRIPT_CANDIDATE in $AVAILABLE_SCRIPTS
+  do
+    BASE_NAME="${SCRIPT_CANDIDATE##*/}"
+    ALT_NAME="${BASE_NAME#poor}"
+    ALT_NAME="${ALT_NAME#-}"
+    if [ "$TARGET" = "$BASE_NAME" ] || [ "$TARGET" = "$ALT_NAME" ]
+    then
+      echo "$SCRIPT_CANDIDATE"
+      return 0
+    fi
+  done
+  return 1
+}
+
+expand_pattern_matches() {
+  PATTERN="$1"
+  RESULTS=""
+  for SCRIPT_CANDIDATE in $AVAILABLE_SCRIPTS
+  do
+    BASE_NAME="${SCRIPT_CANDIDATE##*/}"
+    ALT_NAME="${BASE_NAME#poor}"
+    ALT_NAME="${ALT_NAME#-}"
+    if matches_pattern "$BASE_NAME" "$PATTERN" || matches_pattern "$ALT_NAME" "$PATTERN"
+    then
+      RESULTS="$RESULTS $SCRIPT_CANDIDATE"
+    fi
+  done
+  if [ -n "$RESULTS" ]
+  then
+    echo "$RESULTS"
+    return 0
+  fi
+  return 1
+}
+
+initialize_install_source_directory() {
+  # Ensure we run from the directory containing the script so we can find the tools
+  SCRIPT_PATH="$0"
+  if [ "${SCRIPT_PATH%/*}" = "$SCRIPT_PATH" ]
+  then
+    SCRIPT_PATH=$(command -v -- "$SCRIPT_PATH" 2>/dev/null || echo "$SCRIPT_PATH")
+  fi
+  while LINK_TARGET=$(readlink "$SCRIPT_PATH" 2>/dev/null)
+  do
+    case "$LINK_TARGET" in
+      /*)
+        SCRIPT_PATH="${LINK_TARGET}"
+        ;;
+      *)
+        SCRIPT_DIRNAME=$(dirname -- "$SCRIPT_PATH")
+        SCRIPT_PATH="${SCRIPT_DIRNAME}/${LINK_TARGET}"
+        ;;
+    esac
+  done
+  SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
+  INSTALL_SOURCE_DIR="${SCRIPT_DIR}"
+  cd "$INSTALL_SOURCE_DIR"
+}
+
+handle_install_command() {
+  shift  # remove "install" from arguments
+  
+  # Initialize variables for install functionality
+  DEST=""
+  EMULATE="false"
+  IGNORE_ARGS=""
+  CLEAR_DEST="false"
+  UNINSTALL="false"
+  
+  # Parse install options
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --dest)
+        shift
+        if [ $# -eq 0 ]
+        then
+          echo_error "option '--dest' requires an argument"
+          usage_install
+          return 2
+        fi
+        DEST="$1"
+        shift
+        ;;
+      --dest=*)
+        DEST="${1#--dest=}"
+        shift
+        ;;
+      --emulate)
+        EMULATE="true"
+        shift
+        ;;
+      --clear)
+        CLEAR_DEST="true"
+        shift
+        ;;
+      --uninstall)
+        UNINSTALL="true"
+        shift
+        ;;
+      --ignore|--skip)
+        OPTION_NAME="$1"
+        shift
+        if [ $# -eq 0 ]
+        then
+          echo_error "option '$OPTION_NAME' requires an argument"
+          usage_install
+          return 2
+        fi
+        IGNORE_ARGS="$IGNORE_ARGS $1"
+        shift
+        ;;
+      --ignore=*|--skip=*)
+        OPTION_VALUE="${1#*=}"
+        IGNORE_ARGS="$IGNORE_ARGS $OPTION_VALUE"
+        shift
+        ;;
+      -h|--help)
+        usage_install
+        return 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo_error "unknown option '$1'"
+        usage_install
+        return 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  # Collect remaining arguments for tool selection
+  SELECT_ARGS=""
+  while [ $# -gt 0 ]
+  do
+    SELECT_ARGS="$SELECT_ARGS $1"
+    shift
+  done
+
+  # Validate destination
+  if [ -z "$DEST" ]
+  then
+    if [ -n "${DEST:-}" ]
+    then
+      DEST="$DEST"
+    else
+      echo_error "destination required (--dest or DEST env var)"
+      usage_install
+      return 2
+    fi
+  fi
+
+  # Setup destination directory
+  if [ "$UNINSTALL" = "true" ]
+  then
+    if [ ! -d "$DEST" ]
+    then
+      echo "destination '$DEST' does not exist, nothing to uninstall" >&2
+      return 0
+    fi
+  else
+    mkdir -p "$DEST"
+    if [ "$CLEAR_DEST" = "true" ] && [ -d "$DEST" ]
+    then
+      find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+      echo "cleared $DEST"
+    fi
+  fi
+
+  # Initialize source directory and find available scripts
+  initialize_install_source_directory
+  
+  AVAILABLE_SCRIPTS=""
+  for SCRIPT_PATH_CANDIDATE in poor*
+  do
+    if [ -f "$SCRIPT_PATH_CANDIDATE" ]
+    then
+      AVAILABLE_SCRIPTS="$AVAILABLE_SCRIPTS $SCRIPT_PATH_CANDIDATE"
+    fi
+  done
+
+  if [ -z "$AVAILABLE_SCRIPTS" ]
+  then
+    echo "no tools found in current directory" >&2
+    return 1
+  fi
+
+  # Process ignore patterns
+  IGNORE_SCRIPTS=""
+  for NAME_ARG in $IGNORE_ARGS
+  do
+    if [ -z "$NAME_ARG" ]
+    then
+      continue
+    fi
+    if is_pattern "$NAME_ARG"
+    then
+      if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+      then
+        for SCRIPT_CANDIDATE in $MATCHES
+        do
+          if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_CANDIDATE"
+          then
+            IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_CANDIDATE"
+          fi
+        done
+        continue
+      else
+        echo_warning "no tool matches pattern '${NAME_ARG}'"
+        continue
+      fi
+    fi
+    if SCRIPT_MATCH=$(resolve_install_name "$NAME_ARG" 2>/dev/null)
+    then
+      if ! list_contains "$IGNORE_SCRIPTS" "$SCRIPT_MATCH"
+      then
+        IGNORE_SCRIPTS="$IGNORE_SCRIPTS $SCRIPT_MATCH"
+      fi
+    else
+      echo_warning "no tool matches '${NAME_ARG}'"
+    fi
+  done
+
+  # Process tool selection
+  TO_INSTALL=""
+  if [ -n "$SELECT_ARGS" ]
+  then
+    for NAME_ARG in $SELECT_ARGS
+    do
+      if [ -z "$NAME_ARG" ]
+      then
+        continue
+      fi
+      if is_pattern "$NAME_ARG"
+      then
+        if MATCHES=$(expand_pattern_matches "$NAME_ARG" 2>/dev/null)
+        then
+          for SCRIPT_CANDIDATE in $MATCHES
+          do
+            if ! list_contains "$TO_INSTALL" "$SCRIPT_CANDIDATE"
+            then
+              TO_INSTALL="$TO_INSTALL $SCRIPT_CANDIDATE"
+            fi
+          done
+          continue
+        else
+          echo "unknown tool pattern '$NAME_ARG'" >&2
+          return 2
+        fi
+      fi
+      if SCRIPT_MATCH=$(resolve_install_name "$NAME_ARG" 2>/dev/null)
+      then
+        if ! list_contains "$TO_INSTALL" "$SCRIPT_MATCH"
+        then
+          TO_INSTALL="$TO_INSTALL $SCRIPT_MATCH"
+        fi
+      else
+        echo "unknown tool '$NAME_ARG'" >&2
+        return 2
+      fi
+    done
+  else
+    TO_INSTALL="$AVAILABLE_SCRIPTS"
+  fi
+
+  # Perform installation/uninstallation
+  INSTALLED_COUNT=0
+  REMOVED_COUNT=0
+  for SCRIPT_PATH in $TO_INSTALL
+  do
+    if list_contains "$IGNORE_SCRIPTS" "$SCRIPT_PATH"
+    then
+      continue
+    fi
+    BASE_NAME="${SCRIPT_PATH##*/}"
+    DEST_NAME="$BASE_NAME"
+    if [ "$EMULATE" = "true" ]
+    then
+      if [ "$BASE_NAME" != "poor" ]
+      then
+        STRIPPED_NAME="${DEST_NAME#poor}"
+        if [ -n "$STRIPPED_NAME" ]
+        then
+          DEST_NAME="$STRIPPED_NAME"
+        fi
+      fi
+    fi
+    DEST_PATH="$DEST/$DEST_NAME"
+    if [ "$UNINSTALL" = "true" ]
+    then
+      if [ -e "$DEST_PATH" ]
+      then
+        rm -f "$DEST_PATH"
+        echo "removed $DEST_PATH"
+        REMOVED_COUNT=$((REMOVED_COUNT + 1))
+      else
+        echo "warning: not found $DEST_PATH" >&2
+      fi
+    else
+      if [ "$BASE_NAME" = "poor" ]
+      then
+        if ln -sf "$INSTALL_SOURCE_DIR/$SCRIPT_PATH" "$DEST_PATH" 2>/dev/null
+        then
+          echo "$SCRIPT_PATH -> $DEST_PATH"
+          INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+          continue
+        fi
+      fi
+      cp "$SCRIPT_PATH" "$DEST_PATH"
+      chmod +x "$DEST_PATH"
+      echo "$SCRIPT_PATH -> $DEST_PATH"
+      INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+    fi
+  done
+
+  if [ "$UNINSTALL" = "true" ]
+  then
+    if [ "$REMOVED_COUNT" -eq 0 ]
+    then
+      echo "nothing removed" >&2
+    fi
+    if [ "$CLEAR_DEST" = "true" ]
+    then
+      if ! rmdir "$DEST" 2>/dev/null
+      then
+        echo "warning: could not remove '$DEST' (not empty?)" >&2
+      fi
+    fi
+  else
+    if [ "$INSTALLED_COUNT" -eq 0 ]
+    then
+      echo "nothing installed" >&2
+    fi
+  fi
+}
+
+usage_install() {
+  cat <<USAGE_INSTALL >&2
+Usage: ${SCRIPT_NAME} install [OPTIONS] [TOOL...]
+
+Install poor-tools into a destination directory.
+
+Options:
+  --dest DIR       Install into DIR (or set DEST environment variable)
+  --emulate        Strip leading "poor" when naming installed binaries
+  --clear          Remove DEST before install. With --uninstall try removing DEST after
+  --uninstall      Remove matching files instead of installing
+  --ignore NAME    Skip a tool (repeatable, accepts NAME or poorNAME)
+  --skip NAME      Alias for --ignore
+  -h, --help       Show this help
+
+If TOOL arguments are provided, only those tools are installed. Otherwise all
+available poor* scripts are copied.
+USAGE_INSTALL
+}
+
 normalize_tool_name() {
   REQUEST=$1
 
@@ -273,31 +677,30 @@ normalize_tool_name() {
       return 1
       ;;
     install|installer)
-      printf '%s' "poor-installer"
-      return 0
+      # Handle install command directly, not as a tool
+      return 1
       ;;
     poor-install|poor-installer)
-      printf '%s' "poor-installer"
-      return 0
+      # Legacy names for install - also handle directly
+      return 1
       ;;
   esac
 
   case "$REQUEST" in
     poor-*)
       STRIPPED=${REQUEST#poor-}
-      REQUEST=$STRIPPED
+      printf '%s' "poor$STRIPPED"
+      return 0
       ;;
-  esac
-
-  case "$REQUEST" in
     poor*)
       printf '%s' "$REQUEST"
       return 0
       ;;
+    *)
+      printf '%s' "poor$REQUEST"
+      return 0
+      ;;
   esac
-
-  printf '%s' "poor$REQUEST"
-  return 0
 }
 
 resolve_invocation() {
@@ -306,6 +709,16 @@ resolve_invocation() {
   case "$RAW_NAME" in
     sh|dash|bash|ksh|mksh|zsh)
       printf '%s' "poor"
+      return 0
+      ;;
+  esac
+
+  # Clean up symlink names that might have test/debug suffixes
+  case "$RAW_NAME" in
+    *_test|*_debug|*-test|*-debug)
+      # Strip test/debug suffixes to get the actual tool name
+      CLEAN_NAME=$(echo "$RAW_NAME" | sed 's/[-_]\(test\|debug\)$//')
+      printf '%s' "$CLEAN_NAME"
       return 0
       ;;
   esac
@@ -383,6 +796,110 @@ then
         printf '%s\n' "Base: $BASE_URL"
       fi
       exit 0
+      ;;
+    install|installer|poor-install|poor-installer)
+      handle_install_command "$@"
+      exit $?
+      ;;
+    self-update)
+      shift
+      
+      # Parse self-update options
+      FORCE_UPDATE=""
+      while [ $# -gt 0 ]
+      do
+        case "$1" in
+          --force)
+            FORCE_UPDATE=1
+            shift
+            ;;
+          -h|--help)
+            cat <<SELF_UPDATE_HELP >&2
+Usage: ${SCRIPT_NAME} self-update [--force]
+
+Update the poor script itself to the latest version.
+
+Options:
+  --force    Force update even if current version seems newer
+  -h, --help Show this help
+SELF_UPDATE_HELP
+            exit 0
+            ;;
+          -*)
+            echo_error "poor self-update: unknown option: $1"
+            exit 1
+            ;;
+          *)
+            echo_error "poor self-update: unexpected argument: $1"
+            exit 1
+            ;;
+        esac
+      done
+
+      # Determine current script path
+      CURRENT_SCRIPT="$0"
+      if [ ! -f "$CURRENT_SCRIPT" ]
+      then
+        echo_error "poor self-update: cannot determine current script path"
+        exit 1
+      fi
+
+      # Get absolute path
+      CURRENT_SCRIPT=$(cd "$(dirname "$CURRENT_SCRIPT")" && pwd)/$(basename "$CURRENT_SCRIPT")
+      
+      echo_info "Updating poor script: $CURRENT_SCRIPT"
+      
+      # Download new version to temporary file
+      TMP_SCRIPT="${CURRENT_SCRIPT}.update.$$"
+      trap_cleanup_prepare
+      TMP_DOWNLOAD="$TMP_SCRIPT"
+      
+      echo_info "Downloading latest poor script..."
+      
+      if download_from_base "$TMP_SCRIPT" 1 "poor"
+      then
+        # Verify it's a valid poor script
+        if head -5 "$TMP_SCRIPT" | grep -q "poor-tools"
+        then
+          # Check if we should compare versions (unless --force is used)
+          if [ -z "$FORCE_UPDATE" ]
+          then
+            # Simple size-based check - if new version is significantly smaller, warn
+            if [ -f "$CURRENT_SCRIPT" ]
+            then
+              CURRENT_SIZE=$(wc -c < "$CURRENT_SCRIPT" 2>/dev/null || echo "0")
+              NEW_SIZE=$(wc -c < "$TMP_SCRIPT" 2>/dev/null || echo "0")
+              
+              if [ "$NEW_SIZE" -lt "$((CURRENT_SIZE / 2))" ] && [ "$NEW_SIZE" -gt 0 ]
+              then
+                echo_warning "New version appears significantly smaller than current version"
+                echo_warning "Current: $CURRENT_SIZE bytes, New: $NEW_SIZE bytes"
+                echo_warning "Use --force to update anyway"
+                cleanup_tmp "$TMP_SCRIPT"
+                TMP_DOWNLOAD=""
+                exit 1
+              fi
+            fi
+          fi
+          
+          # Replace current script
+          mv "$TMP_SCRIPT" "$CURRENT_SCRIPT"
+          chmod 755 "$CURRENT_SCRIPT"
+          echo_success "Successfully updated poor script"
+          TMP_DOWNLOAD=""
+          exit 0
+        else
+          echo_error "Downloaded file doesn't appear to be a valid poor script"
+          cleanup_tmp "$TMP_SCRIPT"
+          TMP_DOWNLOAD=""
+          exit 1
+        fi
+      else
+        echo_error "Failed to download updated poor script"
+        cleanup_tmp "$TMP_SCRIPT"
+        TMP_DOWNLOAD=""
+        exit 1
+      fi
       ;;
     -*)
       echo_error "poor: unknown option: $1"

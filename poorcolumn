@@ -5,8 +5,10 @@
 
 set -eu
 
-# shellcheck disable=SC2034  # Used by usage function
+# Global variables
 SCRIPT_NAME="poorcolumn"
+SEP=""  # custom separator (literal string)
+SEP_SET=""
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
@@ -24,176 +26,183 @@ Align input into columns (table layout only).
 USAGE
 }
 
-SEP=''  # custom separator (literal string)
-SEP_SET=
+main() {
+  # Early return for sourcing support
+  if [ -n "${SOURCED:-}" ]
+  then
+    return 0
+  fi
 
-while [ $# -gt 0 ]
-do
-  case "$1" in
-    --debug)
-      DEBUG=1
-      export DEBUG  # Export for use by echo.sh functions
-      shift
-      ;;
-    --trace)
-      set -x
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    -t)
-      # table layout is currently the only mode implemented
-      shift
-      ;;
-    -s)
-      if [ $# -lt 2 ]
-      then
-        echo_error "poorcolumn: -s requires an argument"
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --debug)
+        DEBUG=1
+        export DEBUG  # Export for use by echo.sh functions
+        shift
+        ;;
+      --trace)
+        set -x
+        shift
+        ;;
+      -h|--help)
         usage
-        exit 2
-      fi
-      SEP="$2"
-      SEP_SET=1
-      shift 2
-      ;;
-    -s*)
-      SEP="${1#-s}"
-      if [ -z "$SEP" ]
-      then
-        echo_error "poorcolumn: -s requires an argument"
+        return 0
+        ;;
+      -t)
+        # table layout is currently the only mode implemented
+        shift
+        ;;
+      -s)
+        if [ $# -lt 2 ]
+        then
+          echo_error "poorcolumn: -s requires an argument"
+          usage
+          return 2
+        fi
+        SEP="$2"
+        SEP_SET=1
+        shift 2
+        ;;
+      -s*)
+        SEP="${1#-s}"
+        if [ -z "$SEP" ]
+        then
+          echo_error "poorcolumn: -s requires an argument"
+          usage
+          return 2
+        fi
+        SEP_SET=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo_error "poorcolumn: unsupported flag: $1"
         usage
-        exit 2
-      fi
-      SEP_SET=1
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    -*)
-      echo_error "poorcolumn: unsupported flag: $1"
-      usage
-      exit 2
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
+        return 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
 
-if [ -n "${SEP_SET:-}" ] && [ -z "$SEP" ]
-then
-  echo_error "poorcolumn: separator cannot be empty"
-  exit 2
-fi
+  if [ -n "${SEP_SET:-}" ] && [ -z "$SEP" ]
+  then
+    echo_error "poorcolumn: separator cannot be empty"
+    return 2
+  fi
 
-awk -v SEP="$SEP" -v SEP_SET="${SEP_SET:-}" '
-BEGIN {
-  sep_set = (SEP_SET != "")
-  colsep = "  "
-  FS = "[[:space:]]+"
-}
-{
-  line = $0
-  row += 1
-
-  if (line ~ /^[[:space:]]*$/) {
-    blank[row] = 1
-    next
+  awk -v SEP="$SEP" -v SEP_SET="${SEP_SET:-}" '
+  BEGIN {
+    sep_set = (SEP_SET != "")
+    colsep = "  "
+    FS = "[[:space:]]+"
   }
+  {
+    line = $0
+    row += 1
 
-  delete fields
-  if (sep_set) {
-    n = split_literal(line, fields, SEP)
-  } else {
-    gsub(/^[[:space:]]+/, "", line)
-    gsub(/[[:space:]]+$/, "", line)
-    if (line == "") {
+    if (line ~ /^[[:space:]]*$/) {
       blank[row] = 1
       next
     }
-    n = split(line, fields)
-  }
 
-  cols_for_row[row] = n
-  if (n > cols) {
-    cols = n
-  }
-
-  for (i = 1; i <= n; i++) {
-    cell = fields[i]
-    data[row, i] = cell
-    len = display_width(cell)
-    if (len > width[i]) {
-      width[i] = len
-    }
-  }
-}
-END {
-  for (r = 1; r <= row; r++) {
-    if (blank[r]) {
-      print ""
-      continue
+    delete fields
+    if (sep_set) {
+      n = split_literal(line, fields, SEP)
+    } else {
+      gsub(/^[[:space:]]+/, "", line)
+      gsub(/[[:space:]]+$/, "", line)
+      if (line == "") {
+        blank[row] = 1
+        next
+      }
+      n = split(line, fields)
     }
 
-    n = cols_for_row[r]
-    if (n == 0) {
-      print ""
-      continue
+    cols_for_row[row] = n
+    if (n > cols) {
+      cols = n
     }
 
-    for (i = 1; i <= cols; i++) {
-      cell = data[r, i]
-      w = width[i]
-      if (i < cols) {
-        print_cell(cell, w, colsep)
-      } else {
-        print_cell(cell, w, "")
+    for (i = 1; i <= n; i++) {
+      cell = fields[i]
+      data[row, i] = cell
+      len = display_width(cell)
+      if (len > width[i]) {
+        width[i] = len
       }
     }
-
-    printf "\n"
   }
-}
+  END {
+    for (r = 1; r <= row; r++) {
+      if (blank[r]) {
+        print ""
+        continue
+      }
 
-function split_literal(str, arr, sep,    n, pos, slen) {
-  n = 0
-  slen = length(sep)
-  if (slen == 0) {
+      n = cols_for_row[r]
+      if (n == 0) {
+        print ""
+        continue
+      }
+
+      for (i = 1; i <= cols; i++) {
+        cell = data[r, i]
+        w = width[i]
+        if (i < cols) {
+          print_cell(cell, w, colsep)
+        } else {
+          print_cell(cell, w, "")
+        }
+      }
+
+      printf "\n"
+    }
+  }
+
+  function split_literal(str, arr, sep,    n, pos, slen) {
+    n = 0
+    slen = length(sep)
+    if (slen == 0) {
+      arr[++n] = str
+      return n
+    }
+    while ((pos = index(str, sep)) > 0) {
+      arr[++n] = substr(str, 1, pos - 1)
+      str = substr(str, pos + slen)
+    }
     arr[++n] = str
     return n
   }
-  while ((pos = index(str, sep)) > 0) {
-    arr[++n] = substr(str, 1, pos - 1)
-    str = substr(str, pos + slen)
-  }
-  arr[++n] = str
-  return n
-}
 
-function print_cell(cell, width, sep,    pad) {
-  printf "%s", cell
-  pad = width - display_width(cell)
-  if (pad < 0) {
-    pad = 0
-  }
-  if (sep != "") {
-    while (pad-- > 0) {
-      printf " "
+  function print_cell(cell, width, sep,    pad) {
+    printf "%s", cell
+    pad = width - display_width(cell)
+    if (pad < 0) {
+      pad = 0
     }
-    printf "%s", sep
+    if (sep != "") {
+      while (pad-- > 0) {
+        printf " "
+      }
+      printf "%s", sep
+    }
   }
+
+  function display_width(str, copy) {
+    copy = str
+    gsub(/\033\[[0-9;]*m/, "", copy)
+    gsub("\357\270\217", "", copy)  # strip variation selector-16
+    gsub("\342\200\215", "", copy)  # zero-width joiner
+    gsub("\342\200\214", "", copy)  # zero-width non-joiner
+    return length(copy)
+  }
+  ' "$@"
 }
 
-function display_width(str, copy) {
-  copy = str
-  gsub(/\033\[[0-9;]*m/, "", copy)
-  gsub("\357\270\217", "", copy)  # strip variation selector-16
-  gsub("\342\200\215", "", copy)  # zero-width joiner
-  gsub("\342\200\214", "", copy)  # zero-width non-joiner
-  return length(copy)
-}
-' "$@"
+main "$@"

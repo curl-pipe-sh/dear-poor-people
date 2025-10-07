@@ -75,7 +75,7 @@ def discover_tools() -> list[str]:
         if is_script_file(file_path):
             name = file_path.name
             # Skip certain files
-            if name in {"poor-installer", "main.py"} or name.startswith("."):
+            if name in {"main.py"} or name.startswith("."):
                 continue
             tools.append(name)
 
@@ -553,7 +553,7 @@ async def _serve_installer(
     request: Request, no_templating: str | None = None
 ) -> Response:
     """Common installer handler."""
-    content = get_file_content("poor-installer", no_templating == "1")
+    content = get_file_content("poor", no_templating == "1")
 
     if no_templating != "1":
         server_url = get_server_url(request)
@@ -566,7 +566,7 @@ async def _serve_installer(
 
 @app.get("/installer", response_class=PlainTextResponse)
 async def get_installer(request: Request, no_templating: str | None = None) -> Response:
-    """Serve the poor-installer script."""
+    """Serve the poor script with install functionality."""
     return await _serve_installer(request, no_templating)
 
 
@@ -575,7 +575,7 @@ async def get_installer(request: Request, no_templating: str | None = None) -> R
 async def get_installer_with_path(
     request: Request, path: str, no_templating: str | None = None
 ) -> Response:
-    """Serve the poor-installer script for any /install* path."""
+    """Serve the poor script with install functionality for any /install* path."""
     return await _serve_installer(request, no_templating)
 
 

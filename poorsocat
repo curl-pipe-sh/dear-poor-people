@@ -3,8 +3,13 @@
 # icon: mdi:transit-connection-variant
 # poorcat.sh — minimal interactive TTY bridge (like socat)
 
-# shellcheck disable=SC2034  # Used by usage function
+set -eu
+
+# Global variables
 SCRIPT_NAME="poorsocat"
+DEVICE=""
+BAUD="115200"
+READER_PID=""
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
@@ -35,52 +40,113 @@ Note: You may need appropriate permissions to access serial devices.
 USAGE
 }
 
-# Parse arguments
-case "${1:-}" in
-  --debug)
-    DEBUG=1
-    export DEBUG  # Export for use by echo.sh functions
-    shift
-    ;;
-  --trace)
-    set -x
-    shift
-    ;;
-esac
+# Configure serial TTY settings
+configure_tty() {
+  DEVICE_ARG="$1"
+  BAUD_ARG="$2"
+  
+  # Configure TTY (ignore errors if unsupported)
+  stty -F "$DEVICE_ARG" "$BAUD_ARG" -echo -icanon 2>/dev/null || \
+  stty "$BAUD_ARG" -echo -icanon 2>/dev/null < "$DEVICE_ARG" || true
+}
 
-case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  "")
+# Start background reader process
+start_reader() {
+  DEVICE_ARG="$1"
+  
+  # Start background reader
+  cat < "$DEVICE_ARG" &
+  READER_PID=$!
+}
+
+# Cleanup function for signal handling
+cleanup() {
+  if [ -n "$READER_PID" ]
+  then
+    kill "$READER_PID" 2>/dev/null || true
+  fi
+}
+
+# Main communication loop
+communication_loop() {
+  DEVICE_ARG="$1"
+  
+  # Main loop: read from stdin, write to device
+  while IFS= read -r LINE
+  do
+    # send line with CR
+    printf '%s\r' "$LINE" > "$DEVICE_ARG"
+  done
+}
+
+main() {
+  # Early return for sourcing support
+  if [ -n "${SOURCED:-}" ]
+  then
+    return 0
+  fi
+
+  # Parse arguments
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --debug)
+        DEBUG=1
+        export DEBUG  # Export for use by echo.sh functions
+        shift
+        ;;
+      --trace)
+        set -x
+        shift
+        ;;
+      -h|--help)
+        usage
+        return 0
+        ;;
+      -*)
+        echo_error "Unknown option: $1"
+        usage
+        return 2
+        ;;
+      *)
+        if [ -z "$DEVICE" ]
+        then
+          DEVICE="$1"
+        elif [ -z "${BAUD_SET:-}" ]
+        then
+          BAUD="$1"
+          BAUD_SET=1
+        else
+          echo_error "Too many arguments"
+          usage
+          return 2
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # Validate required arguments
+  if [ -z "$DEVICE" ]
+  then
     echo_error "Error: DEVICE argument required"
     echo_error "Usage: ${SCRIPT_NAME} DEVICE [BAUD]"
     echo_error "A minimal interactive TTY bridge for serial communication."
     usage
-    exit 2
-    ;;
-esac
+    return 2
+  fi
 
-DEVICE="$1"
-BAUD="${2:-115200}"
+  # Set up signal handling
+  trap cleanup EXIT INT TERM
 
-# Configure TTY (ignore errors if unsupported)
-stty -F "$DEVICE" "$BAUD" -echo -icanon 2>/dev/null || \
-stty "$BAUD" -echo -icanon 2>/dev/null < "$DEVICE" || true
+  # Configure the TTY
+  configure_tty "$DEVICE" "$BAUD"
 
-# Start background reader
-cat < "$DEVICE" &
-READER_PID=$!
+  # Start background reader
+  start_reader "$DEVICE"
 
-cleanup() {
-  kill "$READER_PID" 2>/dev/null
+  # Enter communication loop
+  communication_loop "$DEVICE"
 }
-trap cleanup EXIT INT TERM
 
-# Main loop: read from stdin, write to device
-while IFS= read -r line
-do
-  # send line with CR
-  printf '%s\r' "$line" > "$DEVICE"
-done
+main "$@"
