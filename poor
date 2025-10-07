@@ -880,17 +880,15 @@ EOF
       # Check if destination is in PATH
       case ":$PATH:" in
         *":$TARGET_DEST:"*)
-          echo_success "✅ $TARGET_DEST is in your PATH"
+          echo_success "$TARGET_DEST is in your PATH"
           ;;
         *)
-          echo_warning "⚠️  $TARGET_DEST is not in your PATH"
-          echo_info "Add it with: export PATH=\"$TARGET_DEST:\$PATH\""
+          echo_warning "$TARGET_DEST is not in your PATH -> export PATH=\"$TARGET_DEST:\$PATH\""
           ;;
       esac
 
       # Show uninstall command
-      echo ""
-      echo_info "To uninstall, run:"
+      echo_info -n "To uninstall, run: "
 
       # Check if poor was installed in the destination directory
       POOR_INSTALLED=""
@@ -899,21 +897,11 @@ EOF
         POOR_INSTALLED="$TARGET_DEST/poor"
       fi
 
-      if [ "$TARGET_DEST" = "$HOME/.local/bin" ]
+      if [ -n "$POOR_INSTALLED" ]
       then
-        if [ -n "$POOR_INSTALLED" ]
-        then
-          echo "  $POOR_INSTALLED uninstall"
-        else
-          echo "  curl $(strip_trailing_slash "$BASE_URL") | sh -s -- uninstall"
-        fi
+        echo "$POOR_INSTALLED uninstall --clear --dest \"$TARGET_DEST\""
       else
-        if [ -n "$POOR_INSTALLED" ]
-        then
-          echo "  $POOR_INSTALLED uninstall --dest \"$TARGET_DEST\""
-        else
-          echo "  curl $(strip_trailing_slash "$BASE_URL") | sh -s -- uninstall --dest \"$TARGET_DEST\""
-        fi
+        echo "curl $(strip_trailing_slash "$BASE_URL") | sh -s -- uninstall --clear --dest \"$TARGET_DEST\""
       fi
     fi
   fi
@@ -985,7 +973,7 @@ Shows a list of all poor-tools with checkmarks (✅) for installed tools.
 By default shows version info and marks out-of-date tools with (⚠️).
 
 Examples:
-  ${SCRIPT_NAME} list                                    # List all available tools with versions
+  ${SCRIPT_NAME} list                                   # List all available tools with versions
   ${SCRIPT_NAME} list --dest ~/.local/bin               # Check installation in specific dir
   ${SCRIPT_NAME} list --emulate --dest ~/.local/bin     # Check emulated installations
   ${SCRIPT_NAME} list --installed                       # Only show installed tools

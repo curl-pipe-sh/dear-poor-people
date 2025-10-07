@@ -9,10 +9,22 @@ VERBOSE="${VERBOSE:-}"
 ECHO_SYSLOG="${ECHO_SYSLOG:-}"
 QUIET="${QUIET:-}"
 
+# usage: prefix=xx color=xxx echo_fancy [-n] "message"
 echo_fancy() {
-  prefix="$1"
-  color="$2"
-  shift 2
+  no_newline=""
+  for arg in "$@"
+  do
+    case "$arg" in
+      -n)
+        shift
+        no_newline=1
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  unset arg
 
   line="$prefix $*"
   line_fmt="$line"
@@ -22,11 +34,16 @@ echo_fancy() {
     line_fmt="${color}${prefix}\033[0m $*"
   fi
 
-  printf '%b\n' "$line_fmt" >&2
+  msg_fmt='%b'
+  [ -z "$no_newline" ] && msg_fmt="${msg_fmt}\n"
+
+  # shellcheck disable=SC2059
+  printf "$msg_fmt" "$line_fmt" >&2
 
   # Optionally log to syslog
   [ -z "$ECHO_SYSLOG" ] && return 0
-  logger -t "$SCRIPT_NAME" "$(printf '%b\n' "$line_fmt")"
+  # shellcheck disable=SC2059
+  logger -t "$SCRIPT_NAME" "$(printf "$msg_fmt" "$line_fmt")"
 }
 
 echo_info() {
@@ -35,54 +52,39 @@ echo_info() {
   then
     return 0
   fi
-  prefix="INF"
-  color='\033[1m\033[34m'
 
-  echo_fancy "$prefix" "$color" "$*"
+  prefix="INF" color='\033[1m\033[34m' echo_fancy "$@"
 }
 
 echo_success() {
-  prefix="OK"
-  color='\033[1m\033[32m'
-
-  echo_fancy "$prefix" "$color" "$*"
+  prefix="OK" color='\033[1m\033[32m' echo_fancy "$@"
 }
 
 echo_warning() {
   [ -n "$NO_WARNING" ] && return 0
-  prefix="WRN"
-  color='\033[1m\033[33m'
 
-  echo_fancy "$prefix" "$color" "$*"
+  prefix="WRN" color='\033[1m\033[33m' echo_fancy "$@"
 }
 
 echo_error() {
-  prefix="ERR"
-  color='\033[1m\033[31m'
-
-  echo_fancy "$prefix" "$color" "$*"
+  prefix="ERR" color='\033[1m\033[31m' echo_fancy "$@"
 }
 
 echo_debug() {
   [ -z "${DEBUG}${VERBOSE}" ] && return 0
-  prefix="DBG"
-  color='\033[1m\033[35m'
 
-  echo_fancy "$prefix" "$color" "$*"
+  prefix="DBG" color='\033[1m\033[35m' echo_fancy "$@"
 }
 
 echo_dryrun() {
   prefix="DRY"
   color='\033[1m\033[35m'
 
-  echo_fancy "$prefix" "$color" "$*"
+  echo_fancy "$prefix" "$color" "$@"
 }
 
 echo_confirm() {
-  if [ -n "$NOCONFIRM" ]
-  then
-    return 0
-  fi
+  [ -n "$NOCONFIRM" ] && return 0
 
   msg_pre='\033[31mASK\033[0m'
   msg="${1:-"Continue?"}"
