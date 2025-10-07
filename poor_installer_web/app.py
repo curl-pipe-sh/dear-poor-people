@@ -370,10 +370,13 @@ async def get_root(request: Request, no_templating: str | None = None) -> Respon
         installer_links = []
 
         for tool in tools:
-            # Create display name (remove poor prefix for display if present)
-            display_name = (
-                tool.replace("poor", "", 1) if tool.startswith("poor") else tool
-            )
+            # Create display name (remove poor prefix for display if present, except for "poor" itself)
+            if tool == "poor":
+                display_name = "poor"
+            else:
+                display_name = (
+                    tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+                )
             tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
             installer_links.append(f"- {server_url}/{display_name}/install")
 
@@ -415,7 +418,11 @@ All endpoints support ?no_templating=1 to disable include processing.
     # Generate tools cards HTML
     tools_cards_html = ""
     for i, tool in enumerate(tools):
-        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+        # Create display name (remove poor prefix for display if present, except for "poor" itself)
+        if tool == "poor":
+            display_name = "poor"
+        else:
+            display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
         description = get_tool_description(tool)
         icon = get_tool_icon(tool)
         delay = i * 100  # Stagger animations
@@ -439,7 +446,7 @@ All endpoints support ?no_templating=1 to disable include processing.
             <div class="command-snippet">
               <span class="command-label">Run directly:</span>
               <div class="command-box">
-                <pre class="command-code"><code class="language-bash">{run_command}</code></pre>
+                <pre class="command-code" data-action="run"><code class="language-bash">{run_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{run_command}', 'run', '{display_name}')" title="Copy command">
                   <iconify-icon icon="mdi:content-copy"></iconify-icon>
                 </button>
@@ -448,7 +455,7 @@ All endpoints support ?no_templating=1 to disable include processing.
             <div class="command-snippet">
               <span class="command-label">Install locally:</span>
               <div class="command-box">
-                <pre class="command-code"><code class="language-bash">{install_command}</code></pre>
+                <pre class="command-code" data-action="install"><code class="language-bash">{install_command}</code></pre>
                 <button class="clipboard-btn" onclick="copyToClipboard(this, '{install_command}', 'install', '{display_name}')" title="Copy command">
                   <iconify-icon icon="mdi:content-copy"></iconify-icon>
                 </button>
@@ -499,8 +506,11 @@ async def list_tools(request: Request) -> Response:
     installer_links = []
 
     for tool in tools:
-        # Create display name (remove poor prefix for display if present)
-        display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
+        # Create display name (remove poor prefix for display if present, except for "poor" itself)
+        if tool == "poor":
+            display_name = "poor"
+        else:
+            display_name = tool.replace("poor", "", 1) if tool.startswith("poor") else tool
         tool_links.append(f"- {server_url}/{display_name} (alias: /{tool})")
         installer_links.append(f"- {server_url}/{display_name}/install")
 

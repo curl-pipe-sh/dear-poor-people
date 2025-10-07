@@ -8,6 +8,13 @@
 
 set -eu
 
+# shellcheck disable=SC2034  # Used by usage function
+SCRIPT_NAME="poorcurl-openssl"
+
+# Source echo utilities - this line gets replaced during templating
+# shellcheck disable=SC1091  # File is included via templating
+. lib/echo.sh # <TEMPLATE>
+
 MAX_REDIRECTS_DEFAULT=5
 
 # boolean flags: set to "1" when enabled, otherwise unset/empty
@@ -24,20 +31,22 @@ max_redirs=${MAX_REDIRECTS_DEFAULT}
 url=
 
 usage() {
-  echo "Usage: poorcurl-openssl [OPTIONS] URL"
+  echo "Usage: ${SCRIPT_NAME} [--debug] [--trace] [OPTIONS] URL"
   echo
   echo "Options:"
-  echo "  -s                Silent (suppress TLS chatter)"
-  echo "  -S                Show errors (useful with -s)"
-  echo "  -o FILE           Write body to FILE"
-  echo "  -I                Headers only"
-  echo "  -L                Follow redirects (default: ${MAX_REDIRECTS_DEFAULT})"
-  echo "  --max-redirs N    Set redirect limit"
-  echo "  -f                Fail on HTTP >= 400 (exit 22)"
-  echo "  -4                Force IPv4 (require A record; else exit 6)"
-  echo "  -6                Force IPv6 (require AAAA; else exit 6; no IPv4-mapped)"
-  echo "  -v, --verbose     Verbose (DNS, s_client args, redirects)"
-  echo "  -h, --help        Show this help"
+  echo "  --debug               Enable debug output"
+  echo "  --trace               Enable shell tracing (set -x)"
+  echo "  -s                    Silent (suppress TLS chatter)"
+  echo "  -S                    Show errors (useful with -s)"
+  echo "  -o FILE               Write body to FILE"
+  echo "  -I                    Headers only"
+  echo "  -L                    Follow redirects (default: ${MAX_REDIRECTS_DEFAULT})"
+  echo "  --max-redirs N        Set redirect limit"
+  echo "  -f                    Fail on HTTP >= 400 (exit 22)"
+  echo "  -4                    Force IPv4 (require A record; else exit 6)"
+  echo "  -6                    Force IPv6 (require AAAA; else exit 6; no IPv4-mapped)"
+  echo "  -v, --verbose         Verbose (DNS, s_client args, redirects)"
+  echo "  -h, --help            Show this help"
 }
 
 logv() {
@@ -51,6 +60,15 @@ logv() {
 while [ $# -gt 0 ]
 do
   case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     -s)
       silent=1
       shift
@@ -404,7 +422,10 @@ follow() {
       rm -f "$hdrf" "$rawf"
       case "$rc" in
         6)  return 6 ;;
-        *)  [ -z "$silent" ] && echo "curl-ossl: connection failed" >&2; return 1 ;;
+        *)
+          [ -z "$silent" ] && echo_error "curl-ossl: connection failed"
+          return 1
+          ;;
       esac
     fi
 

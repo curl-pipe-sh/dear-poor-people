@@ -9,20 +9,27 @@ set -eu
 . lib/utils.sh # <TEMPLATE>
 # shellcheck disable=SC1091  # File is included via templating
 . lib/echo.sh # <TEMPLATE>
+# shellcheck disable=SC1091  # File is included via templating
+. lib/download.sh # <TEMPLATE>
 
 # shellcheck disable=SC2034  # Used by echo.sh functions
 SCRIPT_NAME="poor"
 
 usage() {
-  cat <<'USAGE' >&2
+  cat <<USAGE >&2
 Usage:
-  poor TOOL [ARGS...]
-  curl -sSL <server>/poor | sh -s -- TOOL [ARGS...]
+  ${SCRIPT_NAME} [--debug] [--trace] TOOL [ARGS...]
+  curl -sSL <server>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
 
 Run poor-tools without installing each script. Behaves a bit like busybox:
-  - "poor curl ..." runs poorcurl
-  - Symlink poor to "curl" so running "curl" executes poor curl
-  - "poor install --dest ~/.local/bin" wraps poor-installer
+  - "${SCRIPT_NAME} curl ..." runs poorcurl
+  - Symlink ${SCRIPT_NAME} to "curl" so running "curl" executes ${SCRIPT_NAME} curl
+  - "${SCRIPT_NAME} install --dest ~/.local/bin" wraps poor-installer
+
+Options:
+  --debug             Enable debug output
+  --trace             Enable shell tracing (set -x)
+  -h, --help          Show this help
 
 Environment:
   POOR_BASE_URL       Override the server or directory to fetch tools from
@@ -35,42 +42,8 @@ USAGE
 }
 
 select_downloader() {
-  if [ -n "${POOR_DOWNLOADER_SELECTED-}" ]
-  then
-    printf '%s' "$POOR_DOWNLOADER_SELECTED"
-    return 0
-  fi
-
-  if [ -n "${POOR_DOWNLOADER-}" ]
-  then
-    case "$POOR_DOWNLOADER" in
-      curl|wget)
-        if has_command "$POOR_DOWNLOADER"
-        then
-          POOR_DOWNLOADER_SELECTED=$POOR_DOWNLOADER
-          printf '%s' "$POOR_DOWNLOADER_SELECTED"
-          return 0
-        fi
-        ;;
-    esac
-  fi
-
-  if has_command curl
-  then
-    POOR_DOWNLOADER_SELECTED=curl
-    printf '%s' "$POOR_DOWNLOADER_SELECTED"
-    return 0
-  fi
-
-  if has_command wget
-  then
-    POOR_DOWNLOADER_SELECTED=wget
-    printf '%s' "$POOR_DOWNLOADER_SELECTED"
-    return 0
-  fi
-
-  echo_error "poor: no downloader (curl or wget) available"
-  return 1
+  # shellcheck disable=SC2120  # Function doesn't use arguments in this context
+  select_downloader_impl "$@"
 }
 
 ensure_cache_dir() {
@@ -150,6 +123,7 @@ run_downloader() {
   DEST_PATH=$2
   EXEC_FLAG=$3
 
+  # shellcheck disable=SC2119  # Function call doesn't need arguments
   DOWNLOADER=$(select_downloader) || return 1
 
   DEST_DIR=$(dirname "$DEST_PATH")
@@ -160,21 +134,11 @@ run_downloader() {
 
   : > "$TMP_DOWNLOAD"
 
-  if [ "$DOWNLOADER" = "curl" ]
+  if download_file_impl "$URL" "$TMP_DOWNLOAD" "$DOWNLOADER"
   then
-    if curl -fsSL "$URL" -o "$TMP_DOWNLOAD"
-    then
-      finalize_download "$TMP_DOWNLOAD" "$DEST_PATH" "$EXEC_FLAG"
-      TMP_DOWNLOAD=""
-      return 0
-    fi
-  else
-    if wget -q "$URL" -O "$TMP_DOWNLOAD"
-    then
-      finalize_download "$TMP_DOWNLOAD" "$DEST_PATH" "$EXEC_FLAG"
-      TMP_DOWNLOAD=""
-      return 0
-    fi
+    finalize_download "$TMP_DOWNLOAD" "$DEST_PATH" "$EXEC_FLAG"
+    TMP_DOWNLOAD=""
+    return 0
   fi
 
   cleanup_tmp "$TMP_DOWNLOAD"
@@ -394,6 +358,15 @@ then
   fi
 
   case "$1" in
+    --debug)
+      DEBUG=1
+      export DEBUG  # Export for use by echo.sh functions
+      shift
+      ;;
+    --trace)
+      set -x
+      shift
+      ;;
     -h|--help|help)
       usage
       exit 0
@@ -416,6 +389,11 @@ then
         printf '%s\n' "Base: $BASE_URL"
       fi
       exit 0
+      ;;
+    -*)
+      echo_error "poor: unknown option: $1"
+      usage
+      exit 1
       ;;
   esac
 
@@ -445,12 +423,12 @@ fi
 
 CACHE_PATH=$(build_cache_path "$TARGET_NAME")
 
-if [ "${POOR_REFRESH-0}" = "1" ] || [ "${POOR_NO_CACHE-0}" = "1" ]
+if [ -n "${POOR_REFRESH:-}" ] || [ -n "${POOR_NO_CACHE:-}" ]
 then
   rm -f "$CACHE_PATH"
 fi
 
-if [ "${POOR_NO_CACHE-0}" = "0" ] && [ -f "$CACHE_PATH" ]
+if [ -z "${POOR_NO_CACHE:-}" ] && [ -f "$CACHE_PATH" ]
 then
   chmod 755 "$CACHE_PATH"
   ensure_dependencies "$CACHE_PATH"

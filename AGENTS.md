@@ -127,6 +127,34 @@ This document provides guidelines for AI agents working on the poor-tools web in
   var1="one"; var2="two"
   case "$var" in one) echo "xxxx" ;; two) echo "yyyy" ;; esac
   ```
+- **Boolean variables**: Use unset/empty for false and non-empty for true (typically "1"):
+  ```bash
+  # Good:
+  THING=1
+  if [ -n "${THING:-}" ]
+  then
+    echo "thing is enabled"
+  fi
+
+  # Also good (test for set/unset):
+  if [ "${THING+set}" = "set" ]
+  then
+    echo "thing is set"
+  fi
+
+  # Good (test for false/unset):
+  if [ -z "${THING:-}" ]
+  then
+    echo "thing is disabled or unset"
+  fi
+
+  # Avoid (string comparison):
+  THING="true"
+  if [ "$THING" = "true" ]
+  then
+    echo "thing is enabled"
+  fi
+  ```
 - **Function exits**: Use `return` in functions, `exit` only from main script flow
 - **Avoid exit in functions**: Never use `exit` within functions - use `return` instead
 - **DRY principle**: Extract common patterns into functions to avoid repetition
