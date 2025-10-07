@@ -11,7 +11,7 @@ jobs:
     name: Ruff (Python linting & formatting)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Lint with Ruff
       uses: astral-sh/ruff-action@v3
@@ -51,7 +51,7 @@ jobs:
     name: ShellCheck (Shell script linting)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Lint shell scripts with ShellCheck
       uses: ludeeus/action-shellcheck@master
