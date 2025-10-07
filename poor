@@ -803,8 +803,8 @@ Options:
   --no-check-updates Disable version checking and update detection
   -h, --help         Show this help
 
-Shows a list of all poor-tools with checkmarks (✓) for installed tools.
-By default shows version info and marks out-of-date tools with (⚠).
+Shows a list of all poor-tools with checkmarks (✅) for installed tools.
+By default shows version info and marks out-of-date tools with (⚠️).
 
 Examples:
   ${SCRIPT_NAME} list                                    # List all available tools with versions
@@ -1382,9 +1382,9 @@ EOF
   then
     if [ -n "$CHECK_UPDATES" ]
     then
-      printf "Available poor-tools (✓ = installed, ⚠ = update available in %s):\n\n" "$TARGET_DEST"
+      printf "Available poor-tools (✅ = installed, ⚠️ = update available in %s):\n\n" "$TARGET_DEST"
     else
-      printf "Available poor-tools (✓ = installed in %s):\n\n" "$TARGET_DEST"
+      printf "Available poor-tools (✅ = installed in %s):\n\n" "$TARGET_DEST"
     fi
   else
     printf "Available poor-tools:\n\n"
@@ -1453,10 +1453,10 @@ EOF
     then
       if [ -n "$CHECK_UPDATES" ] && [ -n "$HAS_UPDATE" ]
       then
-        STATUS="⚠"
+        STATUS="⚠️"
       elif [ -n "$INSTALLED" ]
       then
-        STATUS="✓"
+        STATUS="✅"
       else
         STATUS=" "
       fi
