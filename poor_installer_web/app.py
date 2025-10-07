@@ -1,6 +1,7 @@
 """Web installer for poor-tools."""
 
 import argparse
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -8,7 +9,16 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
+
+
+def pretty_json_response(content: dict[str, Any]) -> Response:
+    """Return a pretty-formatted JSON response with 2-space indentation."""
+    json_str = json.dumps(content, indent=2, ensure_ascii=False)
+    return Response(
+        content=json_str,
+        media_type="application/json; charset=utf-8"
+    )
 
 app = FastAPI(
     title="poor-tools Web Installer",
@@ -609,14 +619,14 @@ async def get_install_all(
 @app.get("/list")
 async def list_tools(request: Request) -> Response:
     """List available tools - format depends on Accept header."""
-    # Check Accept header to determine response format
-    accept_header = request.headers.get("accept", "")
-    if "application/json" in accept_header:
+    # Check Accept header to determine response format (flexible json detection)
+    accept_header = request.headers.get("accept", "").lower()
+    if "json" in accept_header:
         # Return JSON format (same as /list/json)
         server_url = get_server_url(request)
         tools = get_all_tools_metadata()
 
-        return JSONResponse({
+        return pretty_json_response({
             "server_url": server_url,
             "version": get_current_version(),
             "tools": tools,
@@ -695,17 +705,17 @@ curl -sSL {server_url}/list -H "Accept: application/json"
 
 
 @app.get("/list/json")
-async def list_tools_json(request: Request) -> dict[str, Any]:
+async def list_tools_json(request: Request) -> Response:
     """List available tools in JSON format with metadata and versions."""
     server_url = get_server_url(request)
     tools = get_all_tools_metadata()
 
-    return {
+    return pretty_json_response({
         "server_url": server_url,
         "version": get_current_version(),
         "tools": tools,
         "count": len(tools),
-    }
+    })
 
 
 async def _serve_installer(
