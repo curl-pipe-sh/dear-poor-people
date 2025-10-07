@@ -16,10 +16,8 @@ from fastapi.staticfiles import StaticFiles
 def pretty_json_response(content: dict[str, Any]) -> Response:
     """Return a pretty-formatted JSON response with 2-space indentation."""
     json_str = json.dumps(content, indent=2, ensure_ascii=False)
-    return Response(
-        content=json_str,
-        media_type="application/json; charset=utf-8"
-    )
+    return Response(content=json_str, media_type="application/json; charset=utf-8")
+
 
 app = FastAPI(
     title="poor-tools Web Installer",
@@ -132,7 +130,9 @@ def extract_script_metadata(script_path: Path) -> dict[str, Any]:
             for line in f:
                 line = line.strip()
                 if line.startswith("# description:"):
-                    desc = line[len("# description:"):].strip()  # Use proper length calculation
+                    desc = line[
+                        len("# description:") :
+                    ].strip()  # Use proper length calculation
                     metadata["description"] = desc
                 elif line.startswith("# icon:"):
                     metadata["icon"] = line[7:].strip()
@@ -220,8 +220,13 @@ def get_tool_description(tool_name: str) -> str:
                     return line[len("# description:") :].strip()
 
                 # Store alternative format as fallback but continue looking
-                if not fallback_description and (line.startswith(f"# {tool_name} —") or line.startswith(f"# {tool_name} -")):
-                    fallback_description = line.split("—", 1)[-1].split("-", 1)[-1].strip()
+                if not fallback_description and (
+                    line.startswith(f"# {tool_name} —")
+                    or line.startswith(f"# {tool_name} -")
+                ):
+                    fallback_description = (
+                        line.split("—", 1)[-1].split("-", 1)[-1].strip()
+                    )
     except Exception:
         pass
 
@@ -634,12 +639,14 @@ async def list_tools(request: Request) -> Response:
         server_url = get_server_url(request)
         tools = get_all_tools_metadata()
 
-        return pretty_json_response({
-            "server_url": server_url,
-            "version": get_current_version(),
-            "tools": tools,
-            "count": len(tools),
-        })
+        return pretty_json_response(
+            {
+                "server_url": server_url,
+                "version": get_current_version(),
+                "tools": tools,
+                "count": len(tools),
+            }
+        )
 
     # Return simple tool list (one tool per line) for shell scripting
     tools = discover_tools()
@@ -718,12 +725,14 @@ async def list_tools_json(request: Request) -> Response:
     server_url = get_server_url(request)
     tools = get_all_tools_metadata()
 
-    return pretty_json_response({
-        "server_url": server_url,
-        "version": get_current_version(),
-        "tools": tools,
-        "count": len(tools),
-    })
+    return pretty_json_response(
+        {
+            "server_url": server_url,
+            "version": get_current_version(),
+            "tools": tools,
+            "count": len(tools),
+        }
+    )
 
 
 async def _serve_installer(
