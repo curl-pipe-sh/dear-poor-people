@@ -21,6 +21,7 @@ Usage:
   ${SCRIPT_NAME} [--debug] [--trace] TOOL [ARGS...]
   ${SCRIPT_NAME} install [OPTIONS] [TOOL...]
   ${SCRIPT_NAME} uninstall [OPTIONS] [TOOL...]
+  ${SCRIPT_NAME} list [OPTIONS]
   ${SCRIPT_NAME} self-update [--force]
   curl -sSL <BASE_URL>/${SCRIPT_NAME} | sh -s -- TOOL [ARGS...]
 
@@ -32,6 +33,7 @@ Run poor-tools without installing each script. Behaves a bit like busybox:
 Commands:
   install             Install poor-tools into a directory
   uninstall           Remove poor-tools from a directory
+  list                List available poor-tools with installation status
   self-update         Update the poor script itself
 
 Options:
@@ -692,6 +694,32 @@ Examples:
 USAGE_UNINSTALL
 }
 
+usage_list() {
+  cat <<USAGE_LIST >&2
+Usage: ${SCRIPT_NAME} list [OPTIONS]
+
+List available poor-tools with installation status.
+
+Options:
+  --dest DIR       Check installation status in DIR (or set DEST environment variable)
+  --emulate        Check for tools without "poor" prefix when checking installation
+  --local          Only show locally available tools (don't check remote)
+  --remote         Only show remotely available tools (don't check local)
+  --installed      Only show installed tools
+  --available      Only show non-installed tools
+  -h, --help       Show this help
+
+Shows a list of all poor-tools with checkmarks (✓) for installed tools.
+
+Examples:
+  ${SCRIPT_NAME} list                              # List all available tools
+  ${SCRIPT_NAME} list --dest ~/.local/bin         # Check installation in specific dir
+  ${SCRIPT_NAME} list --emulate --dest ~/.local/bin # Check emulated installations
+  ${SCRIPT_NAME} list --installed                 # Only show installed tools
+  ${SCRIPT_NAME} list --local                     # Only show locally available tools
+USAGE_LIST
+}
+
 handle_uninstall_command() {
   shift  # remove "uninstall" from arguments
   
@@ -937,6 +965,308 @@ handle_uninstall_command() {
   fi
 }
 
+# Get tool description from script header
+get_tool_description() {
+  TOOL_FILE="$1"
+  if [ -f "$TOOL_FILE" ]
+  then
+    DESC=$(grep "^# description:" "$TOOL_FILE" 2>/dev/null | head -1 | sed 's/^# description: *//')
+    if [ -n "$DESC" ]
+    then
+      printf '%s' "$DESC"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Get available tools from remote source
+get_remote_tools() {
+  REMOTE_LIST=""
+  
+  case "$BASE_URL" in
+    *://*)
+      # Try to get list from web server
+      DOWNLOADER=$(select_downloader_impl 2>/dev/null) || return 1
+      LIST_URL=$(strip_trailing_slash "$BASE_URL")/list
+      
+      if [ "$DOWNLOADER" = "curl" ]
+      then
+        REMOTE_LIST=$(curl -fsSL "$LIST_URL" 2>/dev/null | grep "^poor" | sort)
+      elif [ "$DOWNLOADER" = "wget" ]
+      then
+        REMOTE_LIST=$(wget -qO- "$LIST_URL" 2>/dev/null | grep "^poor" | sort)
+      fi
+      ;;
+    *)
+      # Local directory source
+      SOURCE_DIR=$(strip_trailing_slash "$BASE_URL")
+      if [ -d "$SOURCE_DIR" ]
+      then
+        for SCRIPT_FILE in "$SOURCE_DIR"/poor*
+        do
+          if [ -f "$SCRIPT_FILE" ]
+          then
+            BASENAME=$(basename "$SCRIPT_FILE")
+            REMOTE_LIST="$REMOTE_LIST$BASENAME
+"
+          fi
+        done
+        REMOTE_LIST=$(printf '%s' "$REMOTE_LIST" | grep . | sort)
+      fi
+      ;;
+  esac
+  
+  printf '%s' "$REMOTE_LIST"
+}
+
+# Check if a tool is installed in destination
+is_tool_installed() {
+  TOOL_NAME="$1"
+  TARGET_DEST="$2"
+  EMULATE="$3"
+  
+  if [ -z "$TARGET_DEST" ] || [ ! -d "$TARGET_DEST" ]
+  then
+    return 1
+  fi
+  
+  CHECK_NAME="$TOOL_NAME"
+  if [ "$EMULATE" = "true" ] && [ "$TOOL_NAME" != "poor" ]
+  then
+    STRIPPED_NAME="${TOOL_NAME#poor}"
+    if [ -n "$STRIPPED_NAME" ]
+    then
+      CHECK_NAME="$STRIPPED_NAME"
+    fi
+  fi
+  
+  [ -f "$TARGET_DEST/$CHECK_NAME" ]
+}
+
+handle_list_command() {
+  shift  # remove "list" from arguments
+  
+  # Initialize variables for list functionality
+  TARGET_DEST=""
+  EMULATE="false"
+  LOCAL_ONLY="false"
+  REMOTE_ONLY="false"
+  INSTALLED_ONLY="false"
+  AVAILABLE_ONLY="false"
+  
+  # Parse list options
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      --dest)
+        shift
+        if [ $# -eq 0 ]
+        then
+          echo_error "option '--dest' requires an argument"
+          usage_list
+          return 2
+        fi
+        TARGET_DEST="$1"
+        shift
+        ;;
+      --dest=*)
+        TARGET_DEST="${1#--dest=}"
+        shift
+        ;;
+      --emulate)
+        EMULATE="true"
+        shift
+        ;;
+      --local)
+        LOCAL_ONLY="true"
+        shift
+        ;;
+      --remote)
+        REMOTE_ONLY="true"
+        shift
+        ;;
+      --installed)
+        INSTALLED_ONLY="true"
+        shift
+        ;;
+      --available)
+        AVAILABLE_ONLY="true"
+        shift
+        ;;
+      -h|--help)
+        usage_list
+        return 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo_error "unknown option '$1'"
+        usage_list
+        return 2
+        ;;
+      *)
+        echo_error "unexpected argument '$1'"
+        usage_list
+        return 2
+        ;;
+    esac
+  done
+
+  # Get destination directory - check command line arg first, then environment variable
+  if [ -z "$TARGET_DEST" ] && [ -n "${DEST:-}" ]
+  then
+    TARGET_DEST="$DEST"
+  fi
+
+  # Initialize collections
+  ALL_TOOLS=""
+  
+  # Get local tools
+  if [ "$REMOTE_ONLY" != "true" ]
+  then
+    initialize_install_source_directory >/dev/null 2>&1 || true
+    
+    for SCRIPT_PATH in poor*
+    do
+      if [ -f "$SCRIPT_PATH" ]
+      then
+        BASENAME=$(basename "$SCRIPT_PATH")
+        if ! printf '%s\n' "$ALL_TOOLS" | grep -qx "$BASENAME"
+        then
+          ALL_TOOLS="$ALL_TOOLS$BASENAME
+"
+        fi
+      fi
+    done
+  fi
+  
+  # Get remote tools
+  if [ "$LOCAL_ONLY" != "true" ]
+  then
+    REMOTE_TOOLS=$(get_remote_tools 2>/dev/null || true)
+    if [ -n "$REMOTE_TOOLS" ]
+    then
+      while IFS= read -r TOOL
+      do
+        if [ -n "$TOOL" ] && ! printf '%s\n' "$ALL_TOOLS" | grep -qx "$TOOL"
+        then
+          ALL_TOOLS="$ALL_TOOLS$TOOL
+"
+        fi
+      done <<EOF
+$REMOTE_TOOLS
+EOF
+    fi
+  fi
+  
+  # Sort and deduplicate tools
+  ALL_TOOLS=$(printf '%s' "$ALL_TOOLS" | grep . | sort | uniq)
+  
+  if [ -z "$ALL_TOOLS" ]
+  then
+    echo "No poor-tools found" >&2
+    return 1
+  fi
+  
+  # Display header
+  if [ -n "$TARGET_DEST" ]
+  then
+    printf "Available poor-tools (✓ = installed in %s):\n\n" "$TARGET_DEST"
+  else
+    printf "Available poor-tools:\n\n"
+  fi
+  
+  # Display tools with installation status
+  TOOL_COUNT=0
+  INSTALLED_COUNT=0
+  
+  while IFS= read -r TOOL
+  do
+    if [ -z "$TOOL" ]
+    then
+      continue
+    fi
+    
+    # Check installation status
+    INSTALLED="false"
+    if [ -n "$TARGET_DEST" ]
+    then
+      if is_tool_installed "$TOOL" "$TARGET_DEST" "$EMULATE"
+      then
+        INSTALLED="true"
+        INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+      fi
+    fi
+    
+    # Apply filters
+    if [ "$INSTALLED_ONLY" = "true" ] && [ "$INSTALLED" != "true" ]
+    then
+      continue
+    fi
+    
+    if [ "$AVAILABLE_ONLY" = "true" ] && [ "$INSTALLED" = "true" ]
+    then
+      continue
+    fi
+    
+    # Format output
+    if [ -n "$TARGET_DEST" ]
+    then
+      if [ "$INSTALLED" = "true" ]
+      then
+        STATUS="✓"
+      else
+        STATUS=" "
+      fi
+      printf "  %s %s" "$STATUS" "$TOOL"
+    else
+      printf "  %s" "$TOOL"
+    fi
+    
+    # Add description if available
+    DESC=""
+    if [ -f "$TOOL" ]
+    then
+      DESC=$(get_tool_description "$TOOL")
+    fi
+    
+    if [ -n "$DESC" ]
+    then
+      printf " - %s" "$DESC"
+    fi
+    
+    printf '\n'
+    TOOL_COUNT=$((TOOL_COUNT + 1))
+  done <<EOF
+$ALL_TOOLS
+EOF
+
+  # Display summary
+  printf '\n'
+  if [ -n "$TARGET_DEST" ]
+  then
+    printf "Total: %d tools (%d installed, %d available)\n" "$TOOL_COUNT" "$INSTALLED_COUNT" "$((TOOL_COUNT - INSTALLED_COUNT))"
+  else
+    printf "Total: %d tools\n" "$TOOL_COUNT"
+  fi
+  
+  # Display destination info
+  if [ -n "$TARGET_DEST" ]
+  then
+    if [ -d "$TARGET_DEST" ]
+    then
+      printf "Installation directory: %s\n" "$TARGET_DEST"
+    else
+      printf "Installation directory: %s (not found)\n" "$TARGET_DEST"
+    fi
+  else
+    printf "Use --dest DIR to check installation status\n"
+  fi
+}
+
 normalize_tool_name() {
   REQUEST=$1
 
@@ -953,6 +1283,10 @@ normalize_tool_name() {
       ;;
     uninstall)
       # Handle uninstall command directly, not as a tool
+      return 1
+      ;;
+    list)
+      # Handle list command directly, not as a tool
       return 1
       ;;
     poor-install|poor-installer)
@@ -1053,31 +1387,16 @@ then
       usage
       exit 0
       ;;
-    list)
-      if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR" ]
-      then
-        for FILE in "$SCRIPT_DIR"/poor*
-        do
-          if [ -f "$FILE" ]
-          then
-            BASENAME=$(basename "$FILE")
-            printf '%s\n' "$BASENAME"
-          fi
-        done
-      fi
-
-      if [ -n "${BASE_URL}" ]
-      then
-        printf '%s\n' "Base: $BASE_URL"
-      fi
-      exit 0
-      ;;
     install|installer|poor-install|poor-installer)
       handle_install_command "$@"
       exit $?
       ;;
     uninstall)
       handle_uninstall_command "$@"
+      exit $?
+      ;;
+    list)
+      handle_list_command "$@"
       exit $?
       ;;
     self-update)
