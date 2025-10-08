@@ -362,7 +362,7 @@ def generate_tool_installer(
         content = content.replace("<GIT_COMMIT_SHA>", f"tool-installer-{tool_name}")
 
         # 3. Modify the main logic to default to installing the specific tool
-        if 'PLACEHOLDER_INSTALLER' in content:
+        if "PLACEHOLDER_INSTALLER" in content:
             install_wrapper = f'''# Tool-specific installer for {tool_name}
 # Default to installing {tool_name} with safety checks
 
@@ -387,7 +387,9 @@ else
 fi
 
 main "$@"'''
-            content = content.replace('# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper)
+            content = content.replace(
+                '# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper
+            )
 
         # Process includes if templating is enabled
         if not no_templating:
@@ -420,7 +422,7 @@ def generate_poor_installer(server_url: str, no_templating: bool = False) -> str
 
         # 3. Modify the main logic to default to install mode
         # Find the placeholder and replace it with install mode
-        if 'PLACEHOLDER_INSTALLER' in content:
+        if "PLACEHOLDER_INSTALLER" in content:
             install_wrapper = '''# Web installer mode - default to install with safety checks
 if [ $# -eq 0 ]
 then
@@ -443,7 +445,9 @@ else
 fi
 
 main "$@"'''
-            content = content.replace('# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper)
+            content = content.replace(
+                '# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper
+            )
 
         # Process includes if templating is enabled
         if not no_templating:
