@@ -1851,75 +1851,75 @@ main() {
     return 0
   fi
 
-if [ "$SELF_NAME" = "poor" ]
-then
-  if [ $# -eq 0 ]
+  if [ "$SELF_NAME" = "poor" ]
   then
-    usage
-    exit 0
-  fi
-
-  # Parse global flags from anywhere in the command line
-  NEW_ARGS=""
-  while [ $# -gt 0 ]
-  do
-    case "$1" in
-      --debug)
-        DEBUG=1
-        export DEBUG  # Export for use by echo.sh functions
-        shift
-        ;;
-      --trace)
-        set -x
-        shift
-        ;;
-      *)
-        NEW_ARGS="$NEW_ARGS $1"
-        shift
-        ;;
-    esac
-  done
-
-  # Reset arguments to the filtered list
-  eval set -- "$NEW_ARGS"
-
-  if [ $# -eq 0 ]
-  then
-    usage
-    exit 0
-  fi
-
-  case "$1" in
-    -h|--help|help)
+    if [ $# -eq 0 ]
+    then
       usage
       exit 0
-      ;;
-    install|installer|poor-install|poor-installer)
-      handle_install_command "$@"
-      exit $?
-      ;;
-    uninstall)
-      handle_uninstall_command "$@"
-      exit $?
-      ;;
-    list)
-      handle_list_command "$@"
-      exit $?
-      ;;
-    self-update)
-      shift
+    fi
 
-      # Parse self-update options
-      FORCE_UPDATE=""
-      while [ $# -gt 0 ]
-      do
-        case "$1" in
-          --force)
-            FORCE_UPDATE=1
-            shift
-            ;;
-          -h|--help)
-            cat <<SELF_UPDATE_HELP >&2
+    # Parse global flags from anywhere in the command line
+    NEW_ARGS=""
+    while [ $# -gt 0 ]
+    do
+      case "$1" in
+        --debug)
+          DEBUG=1
+          export DEBUG  # Export for use by echo.sh functions
+          shift
+          ;;
+        --trace)
+          set -x
+          shift
+          ;;
+        *)
+          NEW_ARGS="$NEW_ARGS $1"
+          shift
+          ;;
+      esac
+    done
+
+    # Reset arguments to the filtered list
+    eval set -- "$NEW_ARGS"
+
+    if [ $# -eq 0 ]
+    then
+      usage
+      exit 0
+    fi
+
+    case "$1" in
+      -h|--help|help)
+        usage
+        exit 0
+        ;;
+      install|installer|poor-install|poor-installer)
+        handle_install_command "$@"
+        exit $?
+        ;;
+      uninstall)
+        handle_uninstall_command "$@"
+        exit $?
+        ;;
+      list)
+        handle_list_command "$@"
+        exit $?
+        ;;
+      self-update)
+        shift
+
+        # Parse self-update options
+        FORCE_UPDATE=""
+        while [ $# -gt 0 ]
+        do
+          case "$1" in
+            --force)
+              FORCE_UPDATE=1
+              shift
+              ;;
+            -h|--help)
+              cat <<SELF_UPDATE_HELP >&2
 Usage: ${SCRIPT_NAME} self-update [--force]
 
 Update the poor script itself to the latest version.
@@ -1962,125 +1962,125 @@ SELF_UPDATE_HELP
       echo_info "Downloading latest poor script..."
 
       if download_from_base "$TMP_SCRIPT" 1 "poor"
-      then
-        # Verify it's a valid poor script
-        if head -5 "$TMP_SCRIPT" | grep -q "poor-tools"
         then
-          # Check if we should compare versions (unless --force is used)
-          if [ -z "$FORCE_UPDATE" ]
+          # Verify it's a valid poor script
+          if head -5 "$TMP_SCRIPT" | grep -q "poor-tools"
           then
-            # Simple size-based check - if new version is significantly smaller, warn
-            if [ -f "$CURRENT_SCRIPT" ]
+            # Check if we should compare versions (unless --force is used)
+            if [ -z "$FORCE_UPDATE" ]
             then
-              CURRENT_SIZE=$(wc -c < "$CURRENT_SCRIPT" 2>/dev/null || echo "0")
-              NEW_SIZE=$(wc -c < "$TMP_SCRIPT" 2>/dev/null || echo "0")
-
-              if [ "$NEW_SIZE" -lt "$((CURRENT_SIZE / 2))" ] && [ "$NEW_SIZE" -gt 0 ]
+              # Simple size-based check - if new version is significantly smaller, warn
+              if [ -f "$CURRENT_SCRIPT" ]
               then
-                echo_warning "New version appears significantly smaller than current version"
-                echo_warning "Current: $CURRENT_SIZE bytes, New: $NEW_SIZE bytes"
-                echo_warning "Use --force to update anyway"
-                cleanup_tmp "$TMP_SCRIPT"
-                TMP_DOWNLOAD=""
-                exit 1
+                CURRENT_SIZE=$(wc -c < "$CURRENT_SCRIPT" 2>/dev/null || echo "0")
+                NEW_SIZE=$(wc -c < "$TMP_SCRIPT" 2>/dev/null || echo "0")
+
+                if [ "$NEW_SIZE" -lt "$((CURRENT_SIZE / 2))" ] && [ "$NEW_SIZE" -gt 0 ]
+                then
+                  echo_warning "New version appears significantly smaller than current version"
+                  echo_warning "Current: $CURRENT_SIZE bytes, New: $NEW_SIZE bytes"
+                  echo_warning "Use --force to update anyway"
+                  cleanup_tmp "$TMP_SCRIPT"
+                  TMP_DOWNLOAD=""
+                  exit 1
+                fi
               fi
             fi
-          fi
 
-          # Replace current script
-          mv "$TMP_SCRIPT" "$CURRENT_SCRIPT"
-          chmod 755 "$CURRENT_SCRIPT"
-          echo_success "Successfully updated poor script"
-          TMP_DOWNLOAD=""
-          exit 0
+            # Replace current script
+            mv "$TMP_SCRIPT" "$CURRENT_SCRIPT"
+            chmod 755 "$CURRENT_SCRIPT"
+            echo_success "Successfully updated poor script"
+            TMP_DOWNLOAD=""
+            exit 0
+          else
+            echo_error "Downloaded file doesn't appear to be a valid poor script"
+            cleanup_tmp "$TMP_SCRIPT"
+            TMP_DOWNLOAD=""
+            exit 1
+          fi
         else
-          echo_error "Downloaded file doesn't appear to be a valid poor script"
+          echo_error "Failed to download updated poor script"
           cleanup_tmp "$TMP_SCRIPT"
           TMP_DOWNLOAD=""
           exit 1
         fi
-      else
-        echo_error "Failed to download updated poor script"
-        cleanup_tmp "$TMP_SCRIPT"
-        TMP_DOWNLOAD=""
+        ;;
+      -*)
+        echo_error "poor: unknown option: $1"
+        usage
         exit 1
+        ;;
+    esac
+
+    TOOL_REQUEST=$1
+    shift
+  else
+    TOOL_REQUEST=$SELF_NAME
+  fi
+
+  TARGET_NAME=$(normalize_tool_name "$TOOL_REQUEST" || printf '')
+  if [ -z "$TARGET_NAME" ]
+  then
+    echo_error "poor: unable to determine tool for '$TOOL_REQUEST'"
+    exit 1
+  fi
+
+  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/$TARGET_NAME" ]
+  then
+    exec "$SCRIPT_DIR/$TARGET_NAME" "$@"
+  fi
+
+  # Check for installed version in ~/.local/bin (preferred over cache)
+  LOCAL_BIN_PATH="$HOME/.local/bin/$TARGET_NAME"
+  if [ -f "$LOCAL_BIN_PATH" ]
+  then
+    exec "$LOCAL_BIN_PATH" "$@"
+  fi
+
+  if command -v "$TARGET_NAME" >/dev/null 2>&1
+  then
+    EXEC_PATH=$(command -v "$TARGET_NAME")
+    exec "$EXEC_PATH" "$@"
+  fi
+
+  CACHE_PATH=$(build_cache_path "$TARGET_NAME")
+
+  if [ -n "${POOR_REFRESH:-}" ] || [ -n "${POOR_NO_CACHE:-}" ]
+  then
+    rm -f "$CACHE_PATH"
+  fi
+
+  if [ -z "${POOR_NO_CACHE:-}" ] && [ -f "$CACHE_PATH" ]
+  then
+    chmod 755 "$CACHE_PATH"
+    ensure_dependencies "$CACHE_PATH"
+    exec "$CACHE_PATH" "$@"
+  fi
+
+  PRIMARY_PATH=$TARGET_NAME
+  SECONDARY_PATH=""
+  case "$TARGET_NAME" in
+    poor*)
+      ALT_NAME=${TARGET_NAME#poor}
+      if [ -n "$ALT_NAME" ]
+      then
+        SECONDARY_PATH=$ALT_NAME
       fi
-      ;;
-    -*)
-      echo_error "poor: unknown option: $1"
-      usage
-      exit 1
       ;;
   esac
 
-  TOOL_REQUEST=$1
-  shift
-else
-  TOOL_REQUEST=$SELF_NAME
-fi
+  if [ -n "$SECONDARY_PATH" ]
+  then
+    download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH" "$SECONDARY_PATH"
+  else
+    download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH"
+  fi
 
-TARGET_NAME=$(normalize_tool_name "$TOOL_REQUEST" || printf '')
-if [ -z "$TARGET_NAME" ]
-then
-  echo_error "poor: unable to determine tool for '$TOOL_REQUEST'"
-  exit 1
-fi
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/$TARGET_NAME" ]
-then
-  exec "$SCRIPT_DIR/$TARGET_NAME" "$@"
-fi
-
-# Check for installed version in ~/.local/bin (preferred over cache)
-LOCAL_BIN_PATH="$HOME/.local/bin/$TARGET_NAME"
-if [ -f "$LOCAL_BIN_PATH" ]
-then
-  exec "$LOCAL_BIN_PATH" "$@"
-fi
-
-if command -v "$TARGET_NAME" >/dev/null 2>&1
-then
-  EXEC_PATH=$(command -v "$TARGET_NAME")
-  exec "$EXEC_PATH" "$@"
-fi
-
-CACHE_PATH=$(build_cache_path "$TARGET_NAME")
-
-if [ -n "${POOR_REFRESH:-}" ] || [ -n "${POOR_NO_CACHE:-}" ]
-then
-  rm -f "$CACHE_PATH"
-fi
-
-if [ -z "${POOR_NO_CACHE:-}" ] && [ -f "$CACHE_PATH" ]
-then
-  chmod 755 "$CACHE_PATH"
   ensure_dependencies "$CACHE_PATH"
+
+  chmod 755 "$CACHE_PATH"
   exec "$CACHE_PATH" "$@"
-fi
-
-PRIMARY_PATH=$TARGET_NAME
-SECONDARY_PATH=""
-case "$TARGET_NAME" in
-  poor*)
-    ALT_NAME=${TARGET_NAME#poor}
-    if [ -n "$ALT_NAME" ]
-    then
-      SECONDARY_PATH=$ALT_NAME
-    fi
-    ;;
-esac
-
-if [ -n "$SECONDARY_PATH" ]
-then
-  download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH" "$SECONDARY_PATH"
-else
-  download_candidates "$CACHE_PATH" 1 "$PRIMARY_PATH"
-fi
-
-ensure_dependencies "$CACHE_PATH"
-
-chmod 755 "$CACHE_PATH"
-exec "$CACHE_PATH" "$@"
 }
 
 # PLACEHOLDER_INSTALLER
