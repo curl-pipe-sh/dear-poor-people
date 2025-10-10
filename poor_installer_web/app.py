@@ -423,7 +423,7 @@ def generate_poor_installer(server_url: str, no_templating: bool = False) -> str
         # 3. Modify the main logic to default to install mode
         # Find the placeholder and replace it with install mode
         if "PLACEHOLDER_INSTALLER" in content:
-            install_wrapper = '''# Web installer mode - default to install with safety checks
+            install_wrapper = """# Web installer mode - default to install with safety checks
 if [ $# -eq 0 ]
 then
   # No arguments provided, default to install mode
@@ -443,11 +443,8 @@ else
       ;;
   esac
 fi
-
-main "$@"'''
-            content = content.replace(
-                '# PLACEHOLDER_INSTALLER\n\nmain "$@"', install_wrapper
-            )
+"""
+            content = content.replace("# PLACEHOLDER_INSTALLER\n", install_wrapper)
 
         # Process includes if templating is enabled
         if not no_templating:
@@ -484,6 +481,17 @@ def process_includes(content: str, base_dir: Path) -> str:
                 # Not a recognized pattern, keep original line
                 result_lines.append(line)
                 continue
+
+            if (
+                include_path.startswith(("'", '"'))
+                and include_path[-1:] == include_path[:1]
+            ):
+                include_path = include_path[1:-1]
+
+            for prefix in ("${SCRIPT_DIR}/", "$SCRIPT_DIR/"):
+                if include_path.startswith(prefix):
+                    include_path = include_path[len(prefix) :]
+                    break
 
             file_path = base_dir / include_path
 

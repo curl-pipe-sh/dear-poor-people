@@ -6,6 +6,52 @@
 
 set -eu
 
+resolve_script_dir() {
+  script_path=$0
+
+  case "$script_path" in
+    */*)
+      ;;
+    *)
+      command_path=$(command -v -- "$script_path" 2>/dev/null || true)
+      if [ -n "$command_path" ]
+      then
+        script_path=$command_path
+      fi
+      ;;
+  esac
+
+  if command -v readlink >/dev/null 2>&1
+  then
+    while link_target=$(readlink "$script_path" 2>/dev/null)
+    do
+      case "$link_target" in
+        /*)
+          script_path=$link_target
+          ;;
+        *)
+          dir_name=$(dirname -- "$script_path")
+          script_path=$dir_name/$link_target
+          ;;
+      esac
+    done
+  fi
+
+  dir_name=$(dirname -- "$script_path")
+  if CDPATH='' cd -- "$dir_name" >/dev/null 2>&1
+  then
+    pwd -P
+  else
+    return 1
+  fi
+}
+
+SCRIPT_DIR=$(resolve_script_dir)
+if [ -z "${SCRIPT_DIR:-}" ]
+then
+  exit 9
+fi
+
 # Global variables
 SCRIPT_NAME="poorcolumn"
 SEP=""  # custom separator (literal string)
@@ -13,7 +59,7 @@ SEP_SET=""
 
 # Source echo utilities - this line gets replaced during templating
 # shellcheck disable=SC1091  # File is included via templating
-. lib/echo.sh # <TEMPLATE>
+. "${SCRIPT_DIR}/lib/echo.sh" # <TEMPLATE>
 
 usage() {
   cat <<USAGE >&2
