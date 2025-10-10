@@ -77,7 +77,7 @@ Usage:
 
 Run poor-tools without installing each script. Behaves a bit like busybox:
   - "${SCRIPT_NAME} curl ..." runs poorcurl
-  - Symlink ${SCRIPT_NAME} to "curl" so running "curl" executes ${SCRIPT_NAME} curl
+  - Symlink ${SCRIPT_NAME} to "curl" so running "curl" executes poorcurl
   - "${SCRIPT_NAME} install --dest ~/.local/bin" installs poor-tools
 
 Commands:
