@@ -182,6 +182,48 @@
             };
           };
 
+          poor-tools = pkgs.stdenvNoCC.mkDerivation {
+            pname = "poor-tools";
+            version = gitShortRev;
+            src = cleanSrc;
+
+            dontConfigure = true;
+            dontBuild = true;
+
+            installPhase = ''
+              runHook preInstall
+
+              mkdir -p "$out/bin"
+
+              for tool in \
+                poor \
+                poorcolumn \
+                poorcurl \
+                poorcurl-openssl \
+                poornmap \
+                poorsocat \
+                poortimeout
+              do
+                install -m755 "$tool" "$out/bin/$tool"
+                substituteInPlace "$out/bin/$tool" \
+                  --replace '<GIT_COMMIT_SHA>' '${gitShortRev}'
+              done
+
+              cp -r lib "$out/bin/"
+
+              runHook postInstall
+            '';
+
+            meta = with pkgs.lib; {
+              description = "Collection of poor-tools shell utilities";
+              homepage = "https://github.com/pschmitt/poor-tools";
+              license = licenses.gpl3Only;
+              maintainers = [ maintainers.pschmitt ];
+              platforms = platforms.all;
+              mainProgram = "poor";
+            };
+          };
+
           dockerImage = pkgs.dockerTools.buildLayeredImage {
             name = "poor-installer-web";
             tag = "latest";
@@ -265,6 +307,7 @@
           packages = {
             default = poor-installer-web;
             poor-installer-web = poor-installer-web;
+            poor-tools = poor-tools;
             docker = dockerImage;
           };
 
